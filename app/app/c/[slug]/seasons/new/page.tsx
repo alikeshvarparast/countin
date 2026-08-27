@@ -1,0 +1,23 @@
+import { notFound } from "next/navigation";
+import { auth } from "@/auth";
+import { getCommunityBySlug, isAdmin } from "@/lib/access";
+import { SeasonForm } from "@/components/season-form";
+import { Card } from "@/components/ui";
+
+export default async function NewSeasonPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const community = getCommunityBySlug(slug);
+  if (!community) notFound();
+  const session = await auth();
+  if (!session?.user?.id || !isAdmin(community.id, session.user.id)) {
+    return <p>Only admins can create seasons.</p>;
+  }
+  return (
+    <div className="max-w-lg">
+      <h2 className="font-display text-3xl">New season</h2>
+      <Card className="mt-6">
+        <SeasonForm slug={slug} defaultLocation={community.location ?? ""} />
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: var(--font-fraunces), serif;
+  --font-sans: var(--font-outfit), sans-serif;
+  --color-pitch: #08160f;
+  --color-pitch-2: #10241a;
+  --color-pitch-3: #183528;
+  --color-lime: #d4f56e;
+  --color-lime-2: #b8e04a;
+  --color-cream: #f4ead4;
+  --color-clay: #c9845a;
+  --color-line: rgba(244, 234, 212, 0.12);
+}
+
+html,
+body {
+  background: var(--color-pitch);
+  color: var(--color-cream);
+}
+
+body {
+  font-family: var(--font-sans);
+  min-height: 100vh;
+}
+
+::selection {
+  background: var(--color-lime);
+  color: var(--color-pitch);
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.pitch-grid {
+  background-image:
+    linear-gradient(rgba(212, 245, 110, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(212, 245, 110, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
