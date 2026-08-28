@@ -1,17 +1,9 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getApprovedMembership, getCommunityBySlug } from "@/lib/access";
-import { cn } from "@/lib/utils";
-
-const links = [
-  { href: "", label: "Overview" },
-  { href: "/events", label: "Weekly" },
-  { href: "/seasons", label: "Seasons" },
-  { href: "/members", label: "People" },
-  { href: "/ledger", label: "Ledger" },
-  { href: "/settings", label: "Settings" },
-];
+import { getClubMembership, getCommunityBySlug } from "@/lib/access";
+import { countUnreadChat } from "@/lib/chat";
+import { ClubNav } from "@/components/club-nav";
+import { LedgerDisclaimer } from "@/components/ledger-disclaimer";
 
 export default async function CommunityLayout({
   children,
@@ -25,27 +17,21 @@ export default async function CommunityLayout({
   if (!session?.user?.id) redirect("/login");
   const community = getCommunityBySlug(slug);
   if (!community) notFound();
-  const membership = getApprovedMembership(community.id, session.user.id);
+  const membership = getClubMembership(community.id, session.user.id);
   if (!membership) redirect(`/communities/${slug}`);
+  const unreadChat = countUnreadChat(community.id, session.user.id);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-8">
-        <p className="text-xs uppercase tracking-[0.25em] text-lime/70">{membership.role}</p>
-        <h1 className="font-display text-4xl">{community.name}</h1>
+    <div className="flex min-h-0 w-full flex-1 flex-col lg:flex-row">
+      <ClubNav slug={slug} name={community.name} imageUrl={community.imageUrl} unreadChat={unreadChat} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-24 pt-4 sm:px-6 lg:px-6 lg:pb-6 lg:pt-6">
+        {children}
       </div>
-      <nav className="mb-8 flex flex-wrap gap-2 border-b border-line pb-4">
-        {links.map((l) => (
-          <Link
-            key={l.href}
-            href={`/app/c/${slug}${l.href}`}
-            className={cn("rounded-full px-3 py-1 text-sm text-cream/70 hover:bg-pitch-3 hover:text-cream")}
-          >
-            {l.label}
-          </Link>
-        ))}
-      </nav>
-      {children}
+      <LedgerDisclaimer
+        slug={slug}
+        communityName={community.name}
+        accepted={Boolean(membership.ledgerAcceptedAt)}
+      />
     </div>
   );
 }

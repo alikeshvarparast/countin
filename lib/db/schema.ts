@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -15,7 +16,11 @@ export const users = sqliteTable("users", {
   telegramChatId: text("telegram_chat_id"),
   telegramLinkToken: text("telegram_link_token"),
   whatsappPhone: text("whatsapp_phone"),
-  createdAt: integer("created_at").notNull(),
+    imageUrl: text("image_url"),
+    passwordResetToken: text("password_reset_token"),
+    passwordResetExpires: integer("password_reset_expires"),
+    platformRole: text("platform_role"),
+    createdAt: integer("created_at").notNull(),
 });
 
 export const communities = sqliteTable(
@@ -28,6 +33,10 @@ export const communities = sqliteTable(
     location: text("location"),
     timezone: text("timezone").notNull().default("America/Toronto"),
     currency: text("currency").notNull().default("CAD"),
+    uid: text("uid").notNull().unique(),
+    imageUrl: text("image_url"),
+    inviteToken: text("invite_token").notNull().unique(),
+    isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
     createdById: text("created_by_id")
       .notNull()
       .references(() => users.id),
@@ -48,6 +57,7 @@ export const memberships = sqliteTable(
       .references(() => users.id),
     role: text("role").notNull().default("member"),
     status: text("status").notNull().default("pending"),
+    ledgerAcceptedAt: integer("ledger_accepted_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -129,10 +139,15 @@ export const weeklyEvents = sqliteTable(
     title: text("title").notNull(),
     location: text("location"),
     startsAt: integer("starts_at"),
+    durationMinutes: integer("duration_minutes"),
+    hasTime: integer("has_time", { mode: "boolean" }).notNull().default(true),
     minPlayers: integer("min_players").notNull().default(10),
     rsvpDeadlineAt: integer("rsvp_deadline_at"),
     status: text("status").notNull().default("open"),
     totalCostCents: integer("total_cost_cents"),
+    paymentMode: text("payment_mode").notNull().default("postpay"),
+    paymentInfo: text("payment_info"),
+    collectorUserId: text("collector_user_id").references(() => users.id),
     createdById: text("created_by_id")
       .notNull()
       .references(() => users.id),
@@ -209,11 +224,30 @@ export const seasons = sqliteTable(
     endDate: text("end_date").notNull(),
     weekdays: text("weekdays").notNull(),
     timeLocal: text("time_local").notNull(),
-    regularPriceCents: integer("regular_price_cents").notNull(),
+    durationMinutes: integer("duration_minutes"),
+    regularPriceCents: integer("regular_price_cents").notNull().default(0),
+    occasionalPriceCents: integer("occasional_price_cents"),
     minPlayers: integer("min_players").notNull().default(10),
+    signupClosesAt: integer("signup_closes_at"),
+    status: text("status").notNull().default("signup"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("seasons_community_idx").on(t.communityId)],
+);
+
+export const seasonSignups = sqliteTable(
+  "season_signups",
+  {
+    id: text("id").primaryKey(),
+    seasonId: text("season_id")
+      .notNull()
+      .references(() => seasons.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("season_signups_season_user_uidx").on(t.seasonId, t.userId)],
 );
 
 export const contracts = sqliteTable(
@@ -319,5 +353,185 @@ export const ledgerEntries = sqliteTable(
     index("ledger_community_idx").on(t.communityId, t.status),
     index("ledger_from_idx").on(t.fromUserId),
     index("ledger_to_idx").on(t.toUserId),
+  ],
+);
+
+export const chatMessages = sqliteTable(
+  "chat_messages",
+  {
+    id: text("id").primaryKey(),
+    communityId: text("community_id")
+      .notNull()
+      .references(() => communities.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    replyToId: text("reply_to_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("chat_community_created_idx").on(t.communityId, t.createdAt)],
+);
+
+export const chatReactions = sqliteTable(
+  "chat_reactions",
+  {
+    id: text("id").primaryKey(),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => chatMessages.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    emoji: text("emoji").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("chat_reactions_message_user_emoji_uidx").on(t.messageId, t.userId, t.emoji)],
+);
+
+export const chatReads = sqliteTable(
+  "chat_reads",
+  {
+    communityId: text("community_id")
+      .notNull()
+      .references(() => communities.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    lastReadAt: integer("last_read_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.communityId, t.userId] })],
+);
+
+export const clubPolls = sqliteTable(
+  "club_polls",
+  {
+    id: text("id").primaryKey(),
+    communityId: text("community_id")
+      .notNull()
+      .references(() => communities.id),
+    question: text("question").notNull(),
+    createdById: text("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    closesAt: integer("closes_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("club_polls_community_idx").on(t.communityId, t.createdAt)],
+);
+
+export const clubPollOptions = sqliteTable(
+  "club_poll_options",
+  {
+    id: text("id").primaryKey(),
+    pollId: text("poll_id")
+      .notNull()
+      .references(() => clubPolls.id),
+    label: text("label").notNull(),
+  },
+  (t) => [index("club_poll_options_poll_idx").on(t.pollId)],
+);
+
+export const clubPollVotes = sqliteTable(
+  "club_poll_votes",
+  {
+    id: text("id").primaryKey(),
+    optionId: text("option_id")
+      .notNull()
+      .references(() => clubPollOptions.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("club_poll_votes_option_user_uidx").on(t.optionId, t.userId)],
+);
+
+export const voteLogs = sqliteTable(
+  "vote_logs",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    pollId: text("poll_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    optionId: text("option_id"),
+    previousOptionId: text("previous_option_id"),
+    action: text("action").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("vote_logs_poll_idx").on(t.kind, t.pollId, t.createdAt)],
+);
+
+export const pollSuggestions = sqliteTable(
+  "poll_suggestions",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    pollId: text("poll_id").notNull(),
+    label: text("label").notNull(),
+    suggestedById: text("suggested_by_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status").notNull().default("pending"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("poll_suggestions_poll_idx").on(t.kind, t.pollId)],
+);
+
+export const supportTickets = sqliteTable(
+  "support_tickets",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    category: text("category").notNull().default("support"),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("open"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("support_tickets_status_idx").on(t.status, t.updatedAt),
+    index("support_tickets_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+export const supportMessages = sqliteTable(
+  "support_messages",
+  {
+    id: text("id").primaryKey(),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id),
+    authorId: text("author_id").references(() => users.id),
+    authorKind: text("author_kind").notNull(),
+    body: text("body").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("support_messages_ticket_idx").on(t.ticketId, t.createdAt)],
+);
+
+export const eventGuests = sqliteTable(
+  "event_guests",
+  {
+    id: text("id").primaryKey(),
+    weeklyEventId: text("weekly_event_id").references(() => weeklyEvents.id),
+    sessionId: text("session_id").references(() => seasonSessions.id),
+    hostUserId: text("host_user_id")
+      .notNull()
+      .references(() => users.id),
+    label: text("label").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("event_guests_weekly_idx").on(t.weeklyEventId),
+    index("event_guests_session_idx").on(t.sessionId),
   ],
 );

@@ -1,3 +1,23 @@
+function zonedWallClock(ms: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(ms));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute"),
+  };
+}
+
 export function zonedDateTimeToUtcMs(
   dateYmd: string,
   timeHm: string,
@@ -5,11 +25,16 @@ export function zonedDateTimeToUtcMs(
 ) {
   const [year, month, day] = dateYmd.split("-").map(Number);
   const [hour, minute] = timeHm.split(":").map(Number);
-  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const locale = new Date(utcGuess).toLocaleString("en-US", { timeZone });
-  const asIfLocal = new Date(locale).getTime();
-  const offset = utcGuess - asIfLocal;
-  return utcGuess + offset;
+  const wanted = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let utc = wanted;
+  for (let i = 0; i < 3; i++) {
+    const wall = zonedWallClock(utc, timeZone);
+    const asUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, 0);
+    const diff = wanted - asUtc;
+    if (diff === 0) break;
+    utc += diff;
+  }
+  return utc;
 }
 
 export function eachSeasonDate(

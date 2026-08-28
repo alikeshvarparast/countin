@@ -9,3 +9,5 @@ data
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+public/uploads/**
+!public/uploads/.gitkeep

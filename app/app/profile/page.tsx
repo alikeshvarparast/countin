@@ -1,8 +1,15 @@
+import Link from "next/link";
+import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
-import { regenerateTelegramLink, updateProfile } from "@/lib/actions/community";
+import { getClubMembership, hintedMemberClub } from "@/lib/access";
+import { regenerateTelegramLink } from "@/lib/actions/community";
+import { ClubNav } from "@/components/club-nav";
+import { ProfileForm } from "@/components/profile-form";
 import { SubmitButton } from "@/components/submit-button";
-import { Card, Field, Input } from "@/components/ui";
+import { Card } from "@/components/ui";
+import { APP_NAME, CLUB_COOKIE, LEGACY_CLUB_COOKIE } from "@/lib/brand";
+import { countUnreadChat } from "@/lib/chat";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { telegramBotUsername, telegramDeepLink } from "@/lib/telegram";
@@ -14,37 +21,36 @@ export default async function ProfilePage() {
   if (!user) return null;
   const bot = telegramBotUsername();
   const link = user.telegramLinkToken ? telegramDeepLink(user.telegramLinkToken) : null;
+  const jar = await cookies();
+  const hintedRaw = jar.get(CLUB_COOKIE)?.value ?? jar.get(LEGACY_CLUB_COOKIE)?.value;
+  const hinted = hintedRaw ? decodeURIComponent(hintedRaw) : undefined;
+  const community = hintedMemberClub(user.id, hinted);
+  const membership = community ? getClubMembership(community.id, user.id) : undefined;
+  const unreadChat = community ? countUnreadChat(community.id, user.id) : 0;
 
-  return (
-    <main className="mx-auto max-w-lg px-4 py-10">
-      <h1 className="font-display text-4xl">Profile</h1>
+  const body = (
+    <main className="mx-auto w-full max-w-lg px-4 py-10 lg:px-0 lg:py-0">
+      <h1 className="font-display text-2xl">Profile</h1>
       <Card className="mt-8 space-y-4">
-        <form
-          action={async (formData) => {
-            "use server";
-            await updateProfile(formData);
-          }}
-          className="space-y-4"
-        >
-          <Field label="Name">
-            <Input name="name" defaultValue={user.name} required />
-          </Field>
-          <Field label="Email">
-            <Input value={user.email} disabled />
-          </Field>
-          <Field label="Telegram username or ID">
-            <Input name="telegram" defaultValue={user.telegramUsername} required />
-          </Field>
-          <Field label="WhatsApp (later)">
-            <Input name="whatsapp" defaultValue={user.whatsappPhone ?? ""} placeholder="+1…" />
-          </Field>
-          <SubmitButton>Save</SubmitButton>
-        </form>
+        <ProfileForm
+          name={user.name}
+          email={user.email}
+          telegram={user.telegramUsername}
+          whatsapp={user.whatsappPhone ?? ""}
+          imageUrl={user.imageUrl}
+        />
       </Card>
       <Card className="mt-6">
-        <h2 className="font-display text-2xl text-lime">Telegram bot</h2>
+        <h2 className="font-display text-lg">Help</h2>
+        <p className="mt-2 text-sm text-ink/60">Send feedback or a support request to {APP_NAME}.</p>
+        <Link href="/app/support" className="mt-3 inline-block text-sm text-primary">
+          Open help →
+        </Link>
+      </Card>
+      <Card className="mt-6">
+        <h2 className="font-display text-lg">Telegram bot</h2>
         {user.telegramChatId ? (
-          <p className="mt-2 text-sm text-cream/70">Linked. DMs will arrive from the Pitchside bot.</p>
+          <p className="mt-2 text-sm text-cream/70">Linked. DMs will arrive from the {APP_NAME} bot.</p>
         ) : (
           <div className="mt-2 space-y-3 text-sm text-cream/70">
             <p>Messages are not linked yet. Telegram will not deliver until you start the bot.</p>
@@ -70,5 +76,16 @@ export default async function ProfilePage() {
         )}
       </Card>
     </main>
+  );
+
+  if (!community || !membership) return body;
+
+  return (
+    <div className="flex min-h-0 w-full flex-1 flex-col lg:flex-row">
+      <ClubNav slug={community.slug} name={community.name} imageUrl={community.imageUrl} unreadChat={unreadChat} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-24 pt-4 sm:px-6 lg:px-6 lg:pb-6 lg:pt-6">
+        {body}
+      </div>
+    </div>
   );
 }

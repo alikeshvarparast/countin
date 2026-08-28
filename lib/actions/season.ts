@@ -19,6 +19,7 @@ import {
   invitations,
   ledgerEntries,
   seasonSessions,
+  seasonSignups,
   seasons,
   sessionSlots,
   users,
@@ -26,6 +27,7 @@ import {
 import { createId, now } from "@/lib/id";
 import { notify, notifyMany } from "@/lib/notify";
 import { eachSeasonDate, zonedDateTimeToUtcMs } from "@/lib/timezone";
+import { localInputToMs, parseDurationMinutes } from "@/lib/utils";
 
 function communityPath(slug: string, rest = "") {
   return `/app/c/${slug}${rest}`;
@@ -59,15 +61,17 @@ export async function createSeason(formData: FormData) {
   const startDate = String(formData.get("startDate") ?? "");
   const endDate = String(formData.get("endDate") ?? "");
   const timeLocal = String(formData.get("timeLocal") ?? "");
-  const regularPrice = Number(formData.get("regularPrice") ?? "");
+  const durationMinutes = parseDurationMinutes(formData.get("durationHours"), formData.get("durationMinutes"));
   const minPlayers = Number(formData.get("minPlayers") ?? 10);
   const weekdays = formData.getAll("weekday").map((v) => Number(v)).filter((n) => n >= 0 && n <= 6);
+  const signupClosesAt = localInputToMs(String(formData.get("signupClosesAt") ?? ""));
 
   if (name.length < 2) return { error: "Name the season." };
   if (!startDate || !endDate) return { error: "Set start and end dates." };
   if (!timeLocal) return { error: "Set the kickoff time." };
+  if (durationMinutes == null) return { error: "Set how long the session lasts." };
   if (weekdays.length === 0) return { error: "Pick at least one weekday." };
-  if (!Number.isFinite(regularPrice) || regularPrice <= 0) return { error: "Set the regular session price." };
+  if (!signupClosesAt) return { error: "Set how long members have to agree to the contract." };
 
   const dates = eachSeasonDate(startDate, endDate, weekdays);
   if (dates.length === 0) return { error: "That range has no matching weekdays." };
@@ -84,8 +88,12 @@ export async function createSeason(formData: FormData) {
       endDate,
       weekdays: JSON.stringify(weekdays),
       timeLocal,
-      regularPriceCents: Math.round(regularPrice * 100),
+      durationMinutes,
+      regularPriceCents: 0,
+      occasionalPriceCents: null,
       minPlayers: Number.isFinite(minPlayers) ? minPlayers : 10,
+      signupClosesAt,
+      status: "signup",
       createdAt: t,
     })
     .run();
@@ -117,14 +125,111 @@ export async function createSeason(formData: FormData) {
     {
       communityId: community.id,
       type: "new_season",
-      title: `Season opened · ${name}`,
-      body: `${dates.length} sessions are on the calendar for ${community.name}.`,
+      title: `Contract season · ${name}`,
+      body: `Agree by the deadline if you want a long-term place. After that, everyone else is occasional.`,
       href: communityPath(community.slug, `/seasons/${seasonId}`),
     },
   );
 
   revalidatePath(communityPath(community.slug, "/seasons"));
   return { ok: true, id: seasonId };
+}
+
+export async function updateSeasonRates(formData: FormData) {
+  const user = await requireUser();
+  const seasonId = String(formData.get("seasonId") ?? "");
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  const regular = Number(formData.get("regularPrice") ?? "");
+  const occasional = Number(formData.get("occasionalPrice") ?? "");
+  if (!Number.isFinite(regular) || regular <= 0) return { error: "Set the contract session rate." };
+  if (!Number.isFinite(occasional) || occasional <= 0) return { error: "Set the occasional rate." };
+  db.update(seasons)
+    .set({
+      regularPriceCents: Math.round(regular * 100),
+      occasionalPriceCents: Math.round(occasional * 100),
+    })
+    .where(eq(seasons.id, seasonId))
+    .run();
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) {
+    revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
+    revalidatePath(communityPath(community.slug));
+  }
+  return { ok: true };
+}
+
+export async function lockSeasonIfDue(seasonId: string) {
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season || season.status !== "signup") return season;
+  if (!season.signupClosesAt || now() < season.signupClosesAt) return season;
+  const signups = db.select().from(seasonSignups).where(eq(seasonSignups.seasonId, seasonId)).all();
+  const t = now();
+  const future = db
+    .select()
+    .from(seasonSessions)
+    .where(and(eq(seasonSessions.seasonId, seasonId), gte(seasonSessions.startsAt, t)))
+    .all();
+  for (const signup of signups) {
+    if (hasContract(seasonId, signup.userId)) continue;
+    db.insert(contracts)
+      .values({
+        id: createId(),
+        seasonId,
+        userId: signup.userId,
+        prepaid: true,
+        createdAt: t,
+      })
+      .run();
+    for (const session of future) {
+      const existing = db
+        .select()
+        .from(sessionSlots)
+        .where(and(eq(sessionSlots.sessionId, session.id), eq(sessionSlots.userId, signup.userId)))
+        .get();
+      if (existing) continue;
+      db.insert(sessionSlots)
+        .values({
+          id: createId(),
+          sessionId: session.id,
+          userId: signup.userId,
+          kind: "contract",
+          status: "contract_present",
+          createdAt: t,
+          updatedAt: t,
+        })
+        .run();
+    }
+  }
+  db.update(seasons).set({ status: "locked" }).where(eq(seasons.id, seasonId)).run();
+  return db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+}
+
+export async function agreeToSeason(seasonId: string) {
+  const user = await requireUser();
+  const season = (await lockSeasonIfDue(seasonId)) ?? db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireMember(season.communityId, user.id);
+  if (season.status !== "signup") return { error: "The agreement window has closed." };
+  if (hasContract(seasonId, user.id)) return { error: "You already have a contract place." };
+  const existing = db
+    .select()
+    .from(seasonSignups)
+    .where(and(eq(seasonSignups.seasonId, seasonId), eq(seasonSignups.userId, user.id)))
+    .get();
+  if (existing) return { error: "You already agreed." };
+  db.insert(seasonSignups)
+    .values({
+      id: createId(),
+      seasonId,
+      userId: user.id,
+      createdAt: now(),
+    })
+    .run();
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
+  return { ok: true };
 }
 
 export async function addContract(formData: FormData) {
@@ -183,6 +288,7 @@ export async function addContract(formData: FormData) {
   const adminId = primaryAdminId(community.id);
   const sessionCount = db.select().from(seasonSessions).where(eq(seasonSessions.seasonId, seasonId)).all().length;
   if (prepaid && sessionCount > 0) {
+    if (!season.regularPriceCents) return { error: "Set the contract session rate before adding a prepaid player." };
     db.insert(ledgerEntries)
       .values({
         id: createId(),
@@ -357,12 +463,14 @@ export async function applyOccasional(sessionId: string) {
       communityId: community.id,
       type: "waitlist_application",
       title: `Waitlist · ${season.name}`,
-      body: `${user.name} applied as an occasional player (50% more than contract).`,
+      body: `${user.name} applied as an occasional player.`,
       href: communityPath(community.slug, `/sessions/${session.id}`),
     },
   );
 
   revalidatePath(communityPath(community.slug, `/sessions/${session.id}`));
+  revalidatePath(communityPath(community.slug));
+  revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
   return { ok: true };
 }
 
@@ -396,10 +504,15 @@ export async function decideWaitlist(formData: FormData) {
       href,
     });
     revalidatePath(href);
+    revalidatePath(communityPath(community.slug));
+    revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
     return { ok: true };
   }
 
   if (decision !== "approved") return { error: "Invalid decision." };
+  if (!season.occasionalPriceCents) {
+    return { error: "Set the occasional rate before approving waitlist players." };
+  }
 
   const t = now();
   db.update(sessionSlots)
@@ -407,7 +520,7 @@ export async function decideWaitlist(formData: FormData) {
     .where(eq(sessionSlots.id, slotId))
     .run();
 
-  const premium = Math.round(season.regularPriceCents * 1.5);
+  const premium = season.occasionalPriceCents;
   db.insert(ledgerEntries)
     .values({
       id: createId(),
@@ -435,11 +548,13 @@ export async function decideWaitlist(formData: FormData) {
     communityId: community.id,
     type: "waitlist_approved",
     title: `You're in · ${season.name}`,
-    body: `Approved as occasional. You pay 50% more than the contract rate, owed to the admin.`,
+    body: `Approved as occasional. Check the ledger for what you owe.`,
     href: communityPath(community.slug, "/ledger"),
   });
 
   revalidatePath(href);
+  revalidatePath(communityPath(community.slug));
+  revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
   revalidatePath(communityPath(community.slug, "/ledger"));
   return { ok: true };
 }
@@ -482,6 +597,7 @@ export async function claimInvitation(invitationId: string) {
   const community = db.select().from(communities).where(eq(communities.id, session.communityId)).get();
   const season = db.select().from(seasons).where(eq(seasons.id, session.seasonId)).get();
   if (!community || !season) return { error: "Season not found." };
+  if (!season.regularPriceCents) return { error: "Set the contract session rate before filling replacements." };
 
   db.insert(ledgerEntries)
     .values({

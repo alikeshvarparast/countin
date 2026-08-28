@@ -15,6 +15,7 @@ export async function markNotificationRead(id: string) {
     db.update(notifications).set({ readAt: now() }).where(eq(notifications.id, id)).run();
   }
   revalidatePath("/app/notifications");
+  revalidatePath("/app");
   return { ok: true };
 }
 

@@ -22,9 +22,9 @@ export function AbsenceForm({ sessionId }: { sessionId: string }) {
           name="inviteType"
           value={inviteType}
           onChange={(e) => setInviteType(e.target.value)}
-          className="w-full rounded-xl border border-line bg-pitch-2 px-3 py-2.5"
+          className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-ink"
         >
-          <option value="none">Open the slot (occasionals pay 50% more, you get no credit)</option>
+          <option value="none">Open the slot (you get no credit)</option>
           <option value="open">Open invitation at regular rate (payment to you)</option>
           <option value="private">Private invitation at regular rate (payment to you)</option>
         </select>

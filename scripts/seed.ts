@@ -11,7 +11,8 @@ import {
   users,
   weeklyEvents,
 } from "../lib/db/schema";
-import { createId, now } from "../lib/id";
+import { createCommunityUid, createId, createInviteToken, now } from "../lib/id";
+import { APP_NAME } from "../lib/brand";
 import { notify } from "../lib/notify";
 import { eachSeasonDate, zonedDateTimeToUtcMs } from "../lib/timezone";
 
@@ -34,6 +35,27 @@ async function upsertUser(name: string, email: string, telegram: string, passwor
 async function main() {
   const passwordHash = await hash("password123", 10);
   const t = now();
+  const ownerHash = await hash("Owner123!@#", 10);
+  const ownerExisting = db.select().from(users).where(eq(users.email, "owner")).get();
+  if (ownerExisting) {
+    db.update(users)
+      .set({ passwordHash: ownerHash, platformRole: "owner", name: "Owner" })
+      .where(eq(users.id, ownerExisting.id))
+      .run();
+  } else {
+    db.insert(users)
+      .values({
+        id: createId(),
+        name: "Owner",
+        email: "owner",
+        passwordHash: ownerHash,
+        telegramUsername: "owner",
+        telegramLinkToken: createId(),
+        platformRole: "owner",
+        createdAt: t,
+      })
+      .run();
+  }
   const alex = await upsertUser("Alex Admin", "alex@club.com", "alexfc", passwordHash);
   const sam = await upsertUser("Sam Player", "sam@club.com", "samfc", passwordHash);
 
@@ -45,6 +67,8 @@ async function main() {
         id,
         name: "Tuesday Night FC",
         slug: "tuesday-night-fc",
+        uid: createCommunityUid(),
+        inviteToken: createInviteToken(),
         description: "Pickup and a prepaid autumn block.",
         location: "Riverside turf",
         timezone: "America/Toronto",
@@ -59,7 +83,7 @@ async function main() {
         id: createId(),
         communityId: community.id,
         userId: alex.id,
-        role: "admin",
+        role: "owner",
         status: "approved",
         createdAt: t,
         updatedAt: t,
@@ -87,6 +111,8 @@ async function main() {
         title: "Wednesday 8v8",
         location: "Riverside turf",
         startsAt: t + 3 * 24 * 60 * 60 * 1000,
+        durationMinutes: 90,
+        hasTime: true,
         minPlayers: 2,
         rsvpDeadlineAt: t + 2 * 24 * 60 * 60 * 1000,
         status: "open",
@@ -113,6 +139,7 @@ async function main() {
         endDate: ymd(end),
         weekdays: JSON.stringify(weekdays),
         timeLocal: "20:00",
+        durationMinutes: 90,
         regularPriceCents: 1200,
         minPlayers: 10,
         createdAt: t,
@@ -158,7 +185,7 @@ async function main() {
     userId: alex.id,
     communityId: community.id,
     type: "welcome",
-    title: "Welcome to Pitchside",
+    title: `Welcome to ${APP_NAME}`,
     body: "Your clubhouse is ready. Telegram DMs wait until the bot is linked.",
     href: "/app/c/tuesday-night-fc",
   });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { APP_NAME } from "@/lib/brand";
 import { sendTelegramMessage } from "@/lib/telegram";
 
 type TelegramUpdate = {
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
 
   await sendTelegramMessage(
     String(chatId),
-    `Linked to Pitchside as ${user.name}. You'll get polls, invites, and session alerts here.`,
+    `Linked to ${APP_NAME} as ${user.name}. You'll get polls, invites, and session alerts here.`,
   );
 
   return NextResponse.json({ ok: true });

@@ -5,7 +5,7 @@ import { getCommunityBySlug, isAdmin } from "@/lib/access";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { seasons } from "@/lib/db/schema";
-import { WEEKDAY_LABELS } from "@/lib/utils";
+import { formatDuration, WEEKDAY_LABELS } from "@/lib/utils";
 import { notFound } from "next/navigation";
 
 export default async function SeasonsPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -23,10 +23,10 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h2 className="font-display text-3xl">Long-term seasons</h2>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="font-display text-2xl">Long-term seasons</h2>
         {admin && (
-          <Link href={`/app/c/${slug}/seasons/new`} className="rounded-full bg-lime px-4 py-2 text-sm text-pitch">
+          <Link href={`/app/c/${slug}/seasons/new`} className="flex min-h-11 items-center justify-center rounded-full bg-primary px-4 py-2 text-sm text-ink">
             New season
           </Link>
         )}
@@ -40,7 +40,10 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
               <Card className="hover:border-lime/40">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">{s.name}</h3>
-                  <Badge>{s.timeLocal}</Badge>
+                  <Badge>
+                    {s.timeLocal}
+                    {s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}
+                  </Badge>
                 </div>
                 <p className="mt-1 text-sm text-cream/50">
                   {s.startDate} → {s.endDate} · {days}

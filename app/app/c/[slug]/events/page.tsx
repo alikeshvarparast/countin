@@ -5,7 +5,7 @@ import { getCommunityBySlug, isAdmin } from "@/lib/access";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { weeklyEvents } from "@/lib/db/schema";
-import { formatWhen } from "@/lib/utils";
+import { formatEventWhen } from "@/lib/utils";
 import { notFound } from "next/navigation";
 
 export default async function EventsListPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -23,10 +23,10 @@ export default async function EventsListPage({ params }: { params: Promise<{ slu
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h2 className="font-display text-3xl">Weekly arrangement</h2>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="font-display text-2xl">Weekly arrangement</h2>
         {admin && (
-          <Link href={`/app/c/${slug}/events/new`} className="rounded-full bg-lime px-4 py-2 text-sm text-pitch">
+          <Link href={`/app/c/${slug}/events/new`} className="flex min-h-11 items-center justify-center rounded-full bg-primary px-4 py-2 text-sm text-ink">
             New event
           </Link>
         )}
@@ -39,7 +39,7 @@ export default async function EventsListPage({ params }: { params: Promise<{ slu
               <div>
                 <h3 className="font-medium">{e.title}</h3>
                 <p className="text-sm text-cream/50">
-                  {formatWhen(e.startsAt, community.timezone)} · {e.location || community.location || "Pitch TBD"}
+                  {formatEventWhen(e.startsAt, community.timezone, e.hasTime, e.durationMinutes)} · {e.location || community.location || "Pitch TBD"}
                 </p>
               </div>
               <Badge>{e.status.replaceAll("_", " ")}</Badge>

@@ -2,13 +2,24 @@ import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { applyOccasional, claimInvitation, decideWaitlist } from "@/lib/actions/season";
+import { applyOccasional, claimInvitation } from "@/lib/actions/season";
 import { AbsenceForm } from "@/components/absence-form";
+import { GuestForm } from "@/components/guest-form";
 import { SubmitButton } from "@/components/submit-button";
-import { Badge, Card } from "@/components/ui";
+import { Badge } from "@/components/ui";
+import { WaitlistPanel } from "@/components/waitlist-panel";
 import { db } from "@/lib/db";
-import { contracts, invitations, seasonSessions, seasons, sessionSlots, users } from "@/lib/db/schema";
-import { formatMoney, formatWhen } from "@/lib/utils";
+import { contracts, eventGuests, invitations, seasonSessions, seasons, sessionSlots, users } from "@/lib/db/schema";
+import { fieldBookedLabel, formatEventWhen, formatMoney, formatWhen } from "@/lib/utils";
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-3 border-b border-line/70 py-2 last:border-0">
+      <dt className="text-xs text-ink/50">{label}</dt>
+      <dd className="m-0 text-sm text-ink">{children}</dd>
+    </div>
+  );
+}
 
 export default async function SessionPage({
   params,
@@ -39,7 +50,18 @@ export default async function SessionPage({
     .where(eq(sessionSlots.sessionId, sessionRow.id))
     .all();
   const invites = db.select().from(invitations).where(eq(invitations.sessionId, sessionRow.id)).all();
+  const guests = db.select().from(eventGuests).where(eq(eventGuests.sessionId, sessionRow.id)).all();
+  const people = db.select({ id: users.id, name: users.name }).from(users).all();
+  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const mySlot = slots.find((s) => s.slot.userId === userId);
+  const sheet = slots.filter((s) => s.slot.status !== "occasional_pending");
+  const pending = slots
+    .filter((s) => s.slot.status === "occasional_pending")
+    .sort((a, b) => a.slot.createdAt - b.slot.createdAt);
+  const history = slots
+    .filter((s) => s.slot.status === "occasional_approved" || s.slot.status === "occasional_rejected")
+    .sort((a, b) => a.slot.createdAt - b.slot.createdAt);
+  const myWaitIndex = pending.findIndex((s) => s.slot.userId === userId);
   const claimable = invites.filter((inv) => {
     if (inv.status !== "open") return false;
     if (myContract) return false;
@@ -50,66 +72,119 @@ export default async function SessionPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm text-lime">{season.name}</p>
-        <h2 className="font-display text-3xl">{formatWhen(sessionRow.startsAt, community.timezone)}</h2>
-        <p className="text-cream/60">{season.location || community.location || "Pitch TBD"}</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.18em] text-primary">{season.name}</p>
+          <h2 className="mt-1 font-display text-2xl">
+            {formatEventWhen(sessionRow.startsAt, community.timezone, true, season.durationMinutes)}
+          </h2>
+          <p className="mt-1 text-sm text-ink/60">{season.location || community.location || "Pitch TBD"}</p>
+        </div>
+        <Badge>{sessionRow.status.replaceAll("_", " ")}</Badge>
       </div>
 
-      <Card>
-        <h3 className="font-display text-xl text-lime">Sheet</h3>
-        <ul className="mt-3 space-y-2">
-          {slots.length === 0 && <li className="text-cream/50">No one on the sheet yet.</li>}
-          {slots.map(({ slot, user }) => (
-            <li key={slot.id} className="flex items-center justify-between gap-3">
-              <span>
+      <div className="rounded-2xl border border-line bg-card p-5">
+        <h3 className="font-display text-lg">Details</h3>
+        <dl className="mt-2">
+          <DetailRow label="When">
+            {formatEventWhen(sessionRow.startsAt, community.timezone, true, season.durationMinutes)}
+          </DetailRow>
+          <DetailRow label="Where">{season.location || community.location || "Pitch TBD"}</DetailRow>
+          <DetailRow label="Field">{fieldBookedLabel(sessionRow.status)}</DetailRow>
+          <DetailRow label="On the sheet">{sheet.length + guests.length}</DetailRow>
+          <DetailRow label="Contract">
+            {season.regularPriceCents > 0
+              ? formatMoney(season.regularPriceCents, community.currency)
+              : "Not set yet"}
+          </DetailRow>
+          <DetailRow label="Occasional">
+            {season.occasionalPriceCents
+              ? formatMoney(season.occasionalPriceCents, community.currency)
+              : "Not set yet"}
+          </DetailRow>
+        </dl>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-card p-5">
+        <h3 className="font-display text-lg">People</h3>
+        <p className="mt-1 text-sm text-ink/55">{sheet.length} on the sheet · {guests.length} guests</p>
+        <div className="mt-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-secondary">Participants · {sheet.length}</p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {sheet.length === 0 && <li className="text-ink/45">No one on the sheet yet.</li>}
+            {sheet.map(({ slot, user }) => (
+              <li key={slot.id}>
                 {user.name}{" "}
-                <span className="text-cream/40">
+                <span className="text-ink/45">
                   · {slot.kind} · {slot.status.replaceAll("_", " ")}
                 </span>
-              </span>
-              {admin && slot.status === "occasional_pending" && (
-                <div className="flex gap-2">
-                  <form
-                    action={async (formData) => {
-                      "use server";
-                      await decideWaitlist(formData);
-                    }}
-                  >
-                    <input type="hidden" name="slotId" value={slot.id} />
-                    <input type="hidden" name="decision" value="approved" />
-                    <SubmitButton>Approve</SubmitButton>
-                  </form>
-                  <form
-                    action={async (formData) => {
-                      "use server";
-                      await decideWaitlist(formData);
-                    }}
-                  >
-                    <input type="hidden" name="slotId" value={slot.id} />
-                    <input type="hidden" name="decision" value="rejected" />
-                    <SubmitButton variant="ghost">Decline</SubmitButton>
-                  </form>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </Card>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="mt-5 border-t border-line pt-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {guests.length}</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {guests.length === 0 && <li className="text-ink/45">No guests yet.</li>}
+            {guests.map((g) => (
+              <li key={g.id}>
+                {g.label} <span className="text-ink/45">· guest of {nameOf(g.hostUserId)}</span>
+              </li>
+            ))}
+          </ul>
+          {mySlot && mySlot.slot.status !== "occasional_pending" && (
+            <div className="mt-3">
+              <GuestForm sessionId={sessionRow.id} />
+            </div>
+          )}
+        </div>
+        {(admin || pending.length > 0 || history.length > 0) && (
+          <WaitlistPanel
+            embedded
+            pending={pending.map(({ slot, user }) => ({
+              slotId: slot.id,
+              name: user.name,
+              askedAt: slot.createdAt,
+              status: slot.status,
+            }))}
+            history={history.map(({ slot, user }) => ({
+              slotId: slot.id,
+              name: user.name,
+              askedAt: slot.createdAt,
+              status: slot.status,
+            }))}
+            timezone={community.timezone}
+            canDecide={admin}
+            rateMissing={!season.occasionalPriceCents}
+          />
+        )}
+      </div>
 
       {myContract && mySlot?.slot.status === "contract_present" && (
-        <Card>
-          <h3 className="font-display text-xl text-lime">Can&apos;t make it?</h3>
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">Can&apos;t make it?</h3>
           <AbsenceForm sessionId={sessionRow.id} />
-        </Card>
+        </div>
+      )}
+
+      {!myContract && myWaitIndex >= 0 && (
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">You&apos;re on the waitlist</h3>
+          <p className="mt-1 text-sm text-ink/60">
+            Position {myWaitIndex + 1} of {pending.length}. Asked{" "}
+            {formatWhen(pending[myWaitIndex].slot.createdAt, community.timezone)}.
+          </p>
+        </div>
       )}
 
       {!myContract && !mySlot && (
-        <Card>
-          <h3 className="font-display text-xl text-lime">Play occasionally</h3>
-          <p className="text-sm text-cream/60">
-            Apply to the waitlist. If approved you pay{" "}
-            {formatMoney(Math.round(season.regularPriceCents * 1.5), community.currency)} to the admin.
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">Play occasionally</h3>
+          <p className="mt-1 text-sm text-ink/60">
+            Apply to the waitlist
+            {season.occasionalPriceCents
+              ? `. If approved you pay ${formatMoney(season.occasionalPriceCents, community.currency)} to the admin.`
+              : ". The occasional rate will be posted later."}
           </p>
           <form
             className="mt-3"
@@ -118,18 +193,20 @@ export default async function SessionPage({
               await applyOccasional(sessionRow.id);
             }}
           >
-            <SubmitButton>Apply</SubmitButton>
+            <SubmitButton size="sm">Apply</SubmitButton>
           </form>
-        </Card>
+        </div>
       )}
 
       {claimable.map((inv) => (
-        <Card key={inv.id}>
-          <h3 className="font-display text-xl text-lime">
+        <div key={inv.id} className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">
             {inv.type === "private" ? "Private replacement invite" : "Open replacement invite"}
           </h3>
-          <p className="text-sm text-cream/60">
-            Regular rate {formatMoney(season.regularPriceCents, community.currency)} goes to the absent contract player.
+          <p className="mt-1 text-sm text-ink/60">
+            {season.regularPriceCents
+              ? `Contract rate ${formatMoney(season.regularPriceCents, community.currency)} goes to the absent contract player.`
+              : "The contract rate will be posted later."}
           </p>
           <form
             className="mt-3"
@@ -138,9 +215,9 @@ export default async function SessionPage({
               await claimInvitation(inv.id);
             }}
           >
-            <SubmitButton>Take this slot</SubmitButton>
+            <SubmitButton size="sm">Take this slot</SubmitButton>
           </form>
-        </Card>
+        </div>
       ))}
     </div>
   );

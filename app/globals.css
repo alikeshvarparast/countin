@@ -1,43 +1,83 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "B Nazanin";
+  src: local("B Nazanin"), local("BNazanin"), local("Nazanin");
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
 @theme {
-  --font-display: var(--font-fraunces), serif;
-  --font-sans: var(--font-outfit), sans-serif;
-  --color-pitch: #08160f;
-  --color-pitch-2: #10241a;
-  --color-pitch-3: #183528;
-  --color-lime: #d4f56e;
-  --color-lime-2: #b8e04a;
-  --color-cream: #f4ead4;
-  --color-clay: #c9845a;
-  --color-line: rgba(244, 234, 212, 0.12);
+  --font-display: var(--font-fraunces), "B Nazanin", var(--font-b-nazanin), serif;
+  --font-sans: var(--font-outfit), "B Nazanin", var(--font-b-nazanin), sans-serif;
+  --color-primary: #3c8663;
+  --color-primary-2: #2f6b4f;
+  --color-secondary: #5b5348;
+  --color-ink: #3f3a34;
+  --color-muted: #f4efe8;
+  --color-card: #fffcf8;
+  --color-on-primary: #ffffff;
+  --color-line: rgba(91, 83, 72, 0.18);
+  --color-pitch: #f4efe8;
+  --color-pitch-2: #fffcf8;
+  --color-pitch-3: #e7e0d6;
+  --color-lime: #3c8663;
+  --color-lime-2: #2f6b4f;
+  --color-cream: #3f3a34;
+  --color-clay: #5b5348;
+  --color-danger: #c62828;
 }
 
 html,
 body {
-  background: var(--color-pitch);
-  color: var(--color-cream);
+  background: var(--color-muted);
+  color: var(--color-ink);
+  overflow-x: clip;
 }
 
 body {
   font-family: var(--font-sans);
-  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 ::selection {
-  background: var(--color-lime);
-  color: var(--color-pitch);
+  background: var(--color-primary);
+  color: var(--color-muted);
+}
+
+button {
+  font: inherit;
 }
 
 input,
 textarea,
 select {
   font: inherit;
+  font-size: 16px;
+}
+
+input,
+textarea,
+select {
+  max-width: 100%;
 }
 
 .pitch-grid {
   background-image:
-    linear-gradient(rgba(212, 245, 110, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(212, 245, 110, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(60, 134, 99, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(60, 134, 99, 0.08) 1px, transparent 1px);
   background-size: 48px 48px;
+}
+
+.pitch-banner {
+  background:
+    radial-gradient(90% 70% at 0% 0%, rgba(255, 252, 248, 0.2), transparent 55%),
+    linear-gradient(145deg, #24553f 0%, #3c8663 52%, #2f6b4f 100%);
+}
+
+.pitch-lines {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 32px 32px;
 }

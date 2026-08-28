@@ -1,10 +1,12 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { notifications, polls, weeklyEvents } from "@/lib/db/schema";
+import { notifications, polls, seasons, weeklyEvents } from "@/lib/db/schema";
 import { notifyMany } from "@/lib/notify";
-import { listApprovedMembers } from "@/lib/access";
+import { listAdmins, listApprovedMembers } from "@/lib/access";
 import { communities } from "@/lib/db/schema";
 import { now } from "@/lib/id";
+import { lockSeasonIfDue } from "@/lib/actions/season";
+import { eventWindowEnd, hasClockTime } from "@/lib/utils";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 
@@ -58,6 +60,7 @@ export async function sendDeadlineReminders() {
 
     if (
       ["open", "ready_to_book", "booked"].includes(event.status) &&
+      hasClockTime(event.hasTime) &&
       event.startsAt &&
       event.startsAt > t &&
       event.startsAt <= windowEnd
@@ -74,6 +77,26 @@ export async function sendDeadlineReminders() {
         },
       );
     }
+
+    if (
+      event.paymentMode === "postpay" &&
+      event.totalCostCents == null &&
+      event.startsAt &&
+      (eventWindowEnd(event) ?? event.startsAt) < t &&
+      event.status !== "cancelled" &&
+      event.status !== "polling"
+    ) {
+      await remindOnce(event.id, "postpay_cost_due", listAdmins(community.id).map((a) => a.userId), {
+        communityId: community.id,
+        title: `Post the cost · ${event.title}`,
+        body: `The session is over. Add the total and payment details so members can settle up.`,
+        href: `/app/c/${community.slug}/events/${event.id}`,
+      });
+    }
+  }
+
+  for (const season of db.select().from(seasons).all()) {
+    await lockSeasonIfDue(season.id);
   }
 }
 

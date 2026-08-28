@@ -6,9 +6,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-dvh flex-col">
       <AppHeader />
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

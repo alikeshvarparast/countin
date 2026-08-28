@@ -1,20 +1,26 @@
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
-import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import {
-  cancelWeeklyEvent,
-  confirmFieldBooked,
-  lockPollTime,
-  postWeeklyCost,
-  setRsvp,
-  votePoll,
-} from "@/lib/actions/weekly";
-import { SubmitButton } from "@/components/submit-button";
-import { Badge, Card, Field, Input } from "@/components/ui";
+import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
+import { PollCard } from "@/components/poll-card";
+import { EventMenu } from "@/components/event-menu";
+import { GuestForm } from "@/components/guest-form";
+import { PresenceVote } from "@/components/presence-vote";
+import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
-import { pollOptions, polls, rsvps, users, votes, weeklyEvents } from "@/lib/db/schema";
-import { formatMoney, formatWhen } from "@/lib/utils";
+import { eventGuests, pollOptions, polls, pollSuggestions, rsvps, users, votes, weeklyEvents } from "@/lib/db/schema";
+import { fieldBookedLabel, formatEventWhen, formatMoney, formatWhen } from "@/lib/utils";
+import { goingHeadcount } from "@/lib/ledger";
+import { listVoteHistory } from "@/lib/votes";
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-3 border-b border-line/70 py-2 last:border-0">
+      <dt className="text-xs text-ink/50">{label}</dt>
+      <dd className="m-0 text-sm text-ink">{children}</dd>
+    </div>
+  );
+}
 
 export default async function WeeklyEventPage({
   params,
@@ -27,7 +33,10 @@ export default async function WeeklyEventPage({
   const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, id)).get();
   if (!event || event.communityId !== community.id) notFound();
   const session = await auth();
-  const admin = session?.user?.id ? isAdmin(community.id, session.user.id) : false;
+  const userId = session?.user?.id;
+  const admin = userId ? isAdmin(community.id, userId) : false;
+  const staff = userId ? isStaff(community.id, userId) : false;
+  const suspended = userId ? isSuspended(community.id, userId) : false;
   const poll = db.select().from(polls).where(eq(polls.eventId, event.id)).get();
   const options = poll
     ? db.select().from(pollOptions).where(eq(pollOptions.pollId, poll.id)).all()
@@ -41,161 +50,183 @@ export default async function WeeklyEventPage({
     .innerJoin(users, eq(users.id, rsvps.userId))
     .where(eq(rsvps.eventId, event.id))
     .all();
+  const guests = db.select().from(eventGuests).where(eq(eventGuests.weeklyEventId, event.id)).all();
+  const people = db.select({ id: users.id, name: users.name }).from(users).all();
+  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const going = rsvpRows.filter((r) => r.rsvp.status === "going");
-  const myRsvp = rsvpRows.find((r) => r.rsvp.userId === session?.user?.id);
+  const notGoing = rsvpRows.filter((r) => r.rsvp.status === "not_going");
+  const myRsvp = rsvpRows.find((r) => r.rsvp.userId === userId);
   const deadlinePassed = Boolean(event.rsvpDeadlineAt && Date.now() > event.rsvpDeadlineAt);
+  const headcount = goingHeadcount(event.id);
+  const collector = event.collectorUserId ? nameOf(event.collectorUserId) : "the collector";
+  const rsvpOpen = ["open", "ready_to_book", "booked"].includes(event.status);
+  const canVote = Boolean(userId && rsvpOpen && !deadlinePassed && !suspended);
+  const canAddGuest = Boolean(myRsvp?.rsvp.status === "going" && !deadlinePassed && !suspended);
+  const canPostCost = Boolean(
+    admin && event.paymentMode === "postpay" && event.totalCostCents == null && event.status !== "cancelled" && event.status !== "polling",
+  );
+  const canBook = Boolean(admin && ["open", "ready_to_book"].includes(event.status));
+  const canCancel = canBook;
+  const suggestions = poll
+    ? db
+        .select()
+        .from(pollSuggestions)
+        .all()
+        .filter((s) => s.kind === "event" && s.pollId === poll.id)
+        .map((s) => ({ id: s.id, label: s.label, name: nameOf(s.suggestedById), status: s.status }))
+    : [];
+  const guestItems = guests.map((g) => ({
+    id: g.id,
+    label: g.label,
+    hostName: nameOf(g.hostUserId),
+    canRemove: Boolean(userId === g.hostUserId || admin),
+  }));
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-3xl">{event.title}</h2>
-          <p className="mt-1 text-cream/60">
-            {formatWhen(event.startsAt, community.timezone)} · {event.location || community.location || "Pitch TBD"}
-          </p>
-          <p className="mt-1 text-sm text-cream/50">
-            Minimum {event.minPlayers} to book · {going.length} going
-            {event.rsvpDeadlineAt && ` · presence until ${formatWhen(event.rsvpDeadlineAt, community.timezone)}`}
+        <div className="min-w-0">
+          <h2 className="font-display text-2xl break-words">{event.title}</h2>
+          <p className="mt-1 text-sm text-ink/60">
+            {formatEventWhen(event.startsAt, community.timezone, event.hasTime, event.durationMinutes)}
           </p>
         </div>
-        <Badge tone={event.status === "booked" || event.status === "ready_to_book" ? "lime" : "line"}>
-          {event.status.replaceAll("_", " ")}
-        </Badge>
+        <div className="flex items-start gap-2">
+          <Badge tone={event.status === "booked" || event.status === "ready_to_book" ? "lime" : "line"}>
+            {event.status.replaceAll("_", " ")}
+          </Badge>
+          <EventMenu
+            slug={slug}
+            eventId={event.id}
+            title={event.title}
+            currency={community.currency}
+            canVote={canVote}
+            myStatus={myRsvp?.rsvp.status}
+            canAddGuest={canAddGuest}
+            isAdmin={admin}
+            canPostCost={canPostCost}
+            canBook={canBook}
+            canCancel={canCancel}
+            lockOptions={admin && event.status === "polling" ? options.map((o) => ({ id: o.id, label: o.label })) : undefined}
+            collectorName={collector}
+            totalCostCents={event.totalCostCents}
+            paymentInfo={event.paymentInfo}
+            goingCount={going.length}
+            notGoingCount={notGoing.length}
+            guestCount={guests.length}
+            guests={guestItems}
+            showDetails={false}
+          />
+        </div>
       </div>
 
       {poll && event.status === "polling" && (
-        <Card>
-          <h3 className="font-display text-xl text-lime">{poll.question}</h3>
-          {poll.closesAt && (
-            <p className="mt-1 text-sm text-cream/50">Closes {formatWhen(poll.closesAt, community.timezone)}</p>
-          )}
-          <ul className="mt-4 space-y-2">
-            {options.map((opt) => {
-              const count = allVotes.filter((v) => v.optionId === opt.id).length;
-              return (
-                <li key={opt.id} className="flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2">
-                  <span>
-                    {opt.label}{" "}
-                    <span className="text-cream/40">
-                      ({count} vote{count === 1 ? "" : "s"})
-                    </span>
-                  </span>
-                  <div className="flex gap-2">
-                    <form
-                      action={async (formData) => {
-                        "use server";
-                        await votePoll(formData);
-                      }}
-                    >
-                      <input type="hidden" name="optionId" value={opt.id} />
-                      <SubmitButton variant="ghost">Vote</SubmitButton>
-                    </form>
-                    {admin && (
-                      <form
-                        action={async (formData) => {
-                          "use server";
-                          await lockPollTime(formData);
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <input type="hidden" name="optionId" value={opt.id} />
-                        <Input name="rsvpDeadlineAt" type="datetime-local" className="w-auto" />
-                        <SubmitButton>Lock this time</SubmitButton>
-                      </form>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+        <PollCard
+          pollId={poll.id}
+          slug={slug}
+          kind="event"
+          question={poll.question}
+          closesLabel={poll.closesAt ? `Closes ${formatWhen(poll.closesAt, community.timezone)}` : null}
+          options={options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            votes: allVotes.filter((v) => v.optionId === o.id).length,
+            mine: allVotes.some((v) => v.optionId === o.id && v.userId === userId),
+          }))}
+          voters={allVotes.map((v) => ({
+            userId: v.userId,
+            name: nameOf(v.userId),
+            vote: options.find((o) => o.id === v.optionId)?.label ?? "",
+            optionId: v.optionId,
+            votedAt: v.createdAt,
+          }))}
+          history={listVoteHistory("event", poll.id)}
+          suggestions={suggestions}
+          timezone={community.timezone}
+          staff={staff}
+          canVote={!suspended}
+          canSeeDetails={!suspended}
+        />
       )}
 
-      {["open", "ready_to_book", "booked"].includes(event.status) && (
-        <Card>
-          <h3 className="font-display text-xl text-lime">Presence</h3>
-          <p className="text-sm text-cream/50">
-            {deadlinePassed ? "Deadline passed. Presence is locked." : "You can change this until the deadline."}
+      <div className="rounded-2xl border border-line bg-card p-5">
+        <h3 className="font-display text-lg">Details</h3>
+        <dl className="mt-2">
+          <DetailRow label="When">
+            {formatEventWhen(event.startsAt, community.timezone, event.hasTime, event.durationMinutes)}
+          </DetailRow>
+          <DetailRow label="Where">{event.location || community.location || "Pitch TBD"}</DetailRow>
+          <DetailRow label="Presence until">
+            {event.rsvpDeadlineAt ? formatWhen(event.rsvpDeadlineAt, community.timezone) : "Open"}
+          </DetailRow>
+          <DetailRow label="Field">{fieldBookedLabel(event.status)}</DetailRow>
+          <DetailRow label="Minimum">{event.minPlayers} players</DetailRow>
+          <DetailRow label="Headcount">{headcount} going</DetailRow>
+          <DetailRow label="Collector">{collector}</DetailRow>
+          <DetailRow label="Cost">
+            {event.totalCostCents != null ? formatMoney(event.totalCostCents, community.currency) : "Not posted yet"}
+          </DetailRow>
+          {event.paymentInfo && <DetailRow label="Pay">{event.paymentInfo}</DetailRow>}
+          {event.totalCostCents != null && (
+            <DetailRow label="Split among">
+              {going.length} player{going.length === 1 ? "" : "s"}
+              {guests.length ? ` · ${guests.length} guest${guests.length === 1 ? "" : "s"}` : ""}
+            </DetailRow>
+          )}
+        </dl>
+      </div>
+
+      {event.status !== "polling" && (
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">People</h3>
+          <p className="mt-1 text-sm text-ink/55">
+            {going.length} going · {notGoing.length} not going
+            {deadlinePassed ? " · Presence is locked" : ""}
           </p>
-          {!deadlinePassed && (
-            <div className="mt-4 flex gap-2">
-              <form
-                action={async (formData) => {
-                  "use server";
-                  await setRsvp(formData);
-                }}
-              >
-                <input type="hidden" name="eventId" value={event.id} />
-                <input type="hidden" name="status" value="going" />
-                <SubmitButton variant={myRsvp?.rsvp.status === "going" ? "primary" : "ghost"}>Going</SubmitButton>
-              </form>
-              <form
-                action={async (formData) => {
-                  "use server";
-                  await setRsvp(formData);
-                }}
-              >
-                <input type="hidden" name="eventId" value={event.id} />
-                <input type="hidden" name="status" value="not_going" />
-                <SubmitButton variant={myRsvp?.rsvp.status === "not_going" ? "cream" : "ghost"}>Not going</SubmitButton>
-              </form>
+          {(canVote || myRsvp) && (
+            <div className="mt-4">
+              <PresenceVote
+                eventId={event.id}
+                myStatus={myRsvp?.rsvp.status}
+                goingCount={going.length}
+                notGoingCount={notGoing.length}
+                canVote={canVote}
+              />
             </div>
           )}
-          <ul className="mt-4 space-y-1 text-sm">
-            {rsvpRows.map(({ rsvp, user }) => (
-              <li key={rsvp.id}>
-                {user.name} — {rsvp.status.replace("_", " ")}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {admin && ["open", "ready_to_book"].includes(event.status) && (
-        <Card className="flex flex-wrap gap-2">
-          <form
-            action={async () => {
-              "use server";
-              await confirmFieldBooked(event.id);
-            }}
-          >
-            <SubmitButton>Mark field booked</SubmitButton>
-          </form>
-          <form
-            action={async () => {
-              "use server";
-              await cancelWeeklyEvent(event.id);
-            }}
-          >
-            <SubmitButton variant="danger">Cancel event</SubmitButton>
-          </form>
-        </Card>
-      )}
-
-      {admin && event.totalCostCents == null && event.status !== "cancelled" && event.status !== "polling" && (
-        <Card>
-          <h3 className="font-display text-xl text-lime">Post cost</h3>
-          <p className="text-sm text-cream/50">Splits equally among people still marked going.</p>
-          <form
-            action={async (formData) => {
-              "use server";
-              await postWeeklyCost(formData);
-            }}
-            className="mt-4 flex items-end gap-3"
-          >
-            <input type="hidden" name="eventId" value={event.id} />
-            <Field label={`Total (${community.currency})`}>
-              <Input name="amount" type="number" step="0.01" min="0.01" required />
-            </Field>
-            <SubmitButton>Split & notify</SubmitButton>
-          </form>
-        </Card>
-      )}
-
-      {event.totalCostCents != null && (
-        <Card>
-          Posted {formatMoney(event.totalCostCents, community.currency)} among {going.length} players. See the ledger.
-        </Card>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-secondary">Going · {going.length}</p>
+              <ul className="mt-1 space-y-1 text-sm">
+                {going.length === 0 && <li className="text-ink/45">No one yet.</li>}
+                {going.map(({ user }) => (
+                  <li key={user.id}>{user.name}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-secondary">Not going · {notGoing.length}</p>
+              <ul className="mt-1 space-y-1 text-sm">
+                {notGoing.length === 0 && <li className="text-ink/45">No one yet.</li>}
+                {notGoing.map(({ user }) => (
+                  <li key={user.id}>{user.name}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div className="mt-5 border-t border-line pt-5">
+            <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {guests.length}</p>
+            <ul className="mt-2 space-y-1 text-sm">
+              {guests.length === 0 && <li className="text-ink/45">No guests yet.</li>}
+              {guests.map((g) => (
+                <li key={g.id}>
+                  {g.label} <span className="text-ink/45">(guest of {nameOf(g.hostUserId)})</span>
+                </li>
+              ))}
+            </ul>
+            {canAddGuest && <GuestForm eventId={event.id} />}
+          </div>
+        </div>
       )}
     </div>
   );

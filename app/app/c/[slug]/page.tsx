@@ -1,11 +1,31 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
+import { CalendarPlus, Vote } from "lucide-react";
 import { auth } from "@/auth";
-import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { Badge, Card } from "@/components/ui";
+import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
+import { EventCard, SectionTitle } from "@/components/event-card";
+import { EventHomeCard } from "@/components/event-home-card";
+import { PollCard } from "@/components/poll-card";
 import { db } from "@/lib/db";
-import { seasonSessions, weeklyEvents } from "@/lib/db/schema";
-import { formatWhen } from "@/lib/utils";
+import {
+  clubPollOptions,
+  clubPollVotes,
+  clubPolls,
+  eventGuests,
+  pollOptions,
+  polls,
+  rsvps,
+  seasonSessions,
+  seasons,
+  sessionSlots,
+  votes,
+  weeklyEvents,
+  users,
+  pollSuggestions,
+} from "@/lib/db/schema";
+import { eventWindowEnd, formatWhen } from "@/lib/utils";
+import { listVoteHistory } from "@/lib/votes";
+import { goingHeadcount } from "@/lib/ledger";
 import { notFound } from "next/navigation";
 
 export default async function CommunityOverviewPage({
@@ -17,68 +37,308 @@ export default async function CommunityOverviewPage({
   const community = getCommunityBySlug(slug);
   if (!community) notFound();
   const session = await auth();
-  const admin = session?.user?.id ? isAdmin(community.id, session.user.id) : false;
+  const userId = session?.user?.id;
+  const admin = userId ? isAdmin(community.id, userId) : false;
+  const staff = userId ? isStaff(community.id, userId) : false;
+  const suspended = userId ? isSuspended(community.id, userId) : false;
+  const now = Date.now();
+  const people = db.select({ id: users.id, name: users.name }).from(users).all();
+  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
+
   const events = db
     .select()
     .from(weeklyEvents)
     .where(eq(weeklyEvents.communityId, community.id))
     .orderBy(desc(weeklyEvents.createdAt))
-    .all()
-    .slice(0, 5);
+    .all();
+
+  const goingByEvent = new Map<string, number>();
+  for (const e of events) {
+    goingByEvent.set(e.id, goingHeadcount(e.id));
+  }
+  const rsvpRows = db.select().from(rsvps).all();
+  const guestRows = db.select().from(eventGuests).all();
+  const slotRows = db.select().from(sessionSlots).all();
+
+  const activeEvents = events.filter((e) => {
+    if (e.status === "cancelled") return false;
+    if (!e.startsAt) return e.status === "polling" || e.status === "open";
+    return (eventWindowEnd(e) ?? e.startsAt) >= now;
+  });
+  const pastEvents = events.filter((e) => {
+    if (!e.startsAt) return false;
+    return (eventWindowEnd(e) ?? e.startsAt) < now;
+  });
+
   const sessions = db
     .select()
     .from(seasonSessions)
     .where(eq(seasonSessions.communityId, community.id))
     .orderBy(desc(seasonSessions.startsAt))
+    .all();
+  const seasonRows = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
+  const seasonOf = (id: string) => seasonRows.find((s) => s.id === id);
+  const seasonName = (id: string) => seasonOf(id)?.name ?? "Season";
+  const sessionEnd = (s: (typeof sessions)[number]) =>
+    s.startsAt + (seasonOf(s.seasonId)?.durationMinutes ?? 120) * 60 * 1000;
+  const upcomingSessions = sessions.filter((s) => sessionEnd(s) >= now);
+  const pastSessions = sessions.filter((s) => sessionEnd(s) < now).slice(0, 8);
+
+  const eventPolls = events
+    .filter((e) => e.status === "polling")
+    .map((event) => {
+      const poll = db.select().from(polls).where(eq(polls.eventId, event.id)).get();
+      if (!poll) return null;
+      const options = db.select().from(pollOptions).where(eq(pollOptions.pollId, poll.id)).all();
+      const allVotes = db.select().from(votes).all().filter((v) => options.some((o) => o.id === v.optionId));
+      return {
+        id: poll.id,
+        kind: "event" as const,
+        question: poll.question,
+        closesAt: poll.closesAt,
+        options: options.map((o) => ({
+          id: o.id,
+          label: o.label,
+          votes: allVotes.filter((v) => v.optionId === o.id).length,
+          mine: allVotes.some((v) => v.optionId === o.id && v.userId === userId),
+        })),
+        voters: allVotes.map((v) => ({
+          userId: v.userId,
+          name: nameOf(v.userId),
+          vote: options.find((o) => o.id === v.optionId)?.label ?? "",
+          optionId: v.optionId,
+          votedAt: v.createdAt,
+        })),
+        history: listVoteHistory("event", poll.id),
+        suggestions: db
+          .select()
+          .from(pollSuggestions)
+          .all()
+          .filter((s) => s.kind === "event" && s.pollId === poll.id)
+          .map((s) => ({ id: s.id, label: s.label, name: nameOf(s.suggestedById), status: s.status })),
+      };
+    })
+    .filter(Boolean);
+
+  const clubPollRows = db
+    .select()
+    .from(clubPolls)
+    .where(eq(clubPolls.communityId, community.id))
+    .orderBy(desc(clubPolls.createdAt))
     .all()
-    .filter((s) => s.startsAt >= Date.now() - 12 * 60 * 60 * 1000)
-    .slice(0, 6);
+    .filter((p) => !p.closesAt || p.closesAt > now);
+
+  const liveClubPolls = clubPollRows.map((poll) => {
+    const options = db.select().from(clubPollOptions).where(eq(clubPollOptions.pollId, poll.id)).all();
+    const allVotes = db
+      .select()
+      .from(clubPollVotes)
+      .all()
+      .filter((v) => options.some((o) => o.id === v.optionId));
+    return {
+      id: poll.id,
+      kind: "club" as const,
+      question: poll.question,
+      closesAt: poll.closesAt,
+      options: options.map((o) => ({
+        id: o.id,
+        label: o.label,
+        votes: allVotes.filter((v) => v.optionId === o.id).length,
+        mine: allVotes.some((v) => v.optionId === o.id && v.userId === userId),
+      })),
+      voters: allVotes.map((v) => ({
+        userId: v.userId,
+        name: nameOf(v.userId),
+        vote: options.find((o) => o.id === v.optionId)?.label ?? "",
+        optionId: v.optionId,
+        votedAt: v.createdAt,
+      })),
+      history: listVoteHistory("club", poll.id),
+      suggestions: db
+        .select()
+        .from(pollSuggestions)
+        .all()
+        .filter((s) => s.kind === "club" && s.pollId === poll.id)
+        .map((s) => ({ id: s.id, label: s.label, name: nameOf(s.suggestedById), status: s.status })),
+    };
+  });
+
+  const livePolls = [...liveClubPolls, ...eventPolls.filter((p) => p !== null)];
+  const createLinks = staff ? (
+    <>
+      <Link
+        href={`/app/c/${slug}/events/new`}
+        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-sm text-ink"
+      >
+        <CalendarPlus className="h-4 w-4" />
+        Create event
+      </Link>
+      <Link
+        href={`/app/c/${slug}/polls/new`}
+        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-sm text-ink"
+      >
+        <Vote className="h-4 w-4 text-primary" />
+        Create poll
+      </Link>
+    </>
+  ) : null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Card>
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-2xl text-lime">Weekly</h2>
-          {admin && (
-            <Link href={`/app/c/${slug}/events/new`} className="text-sm text-lime">
-              New event
-            </Link>
+    <div className="space-y-8">
+      {livePolls.length > 0 && (
+        <section>
+          <SectionTitle action={createLinks}>Current polls</SectionTitle>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {livePolls.map((poll) =>
+              poll ? (
+                <PollCard
+                  key={poll.id}
+                  pollId={poll.id}
+                  slug={slug}
+                  kind={poll.kind}
+                  question={poll.question}
+                  closesLabel={poll.closesAt ? `Closes ${formatWhen(poll.closesAt, community.timezone)}` : null}
+                  options={poll.options}
+                  voters={poll.voters}
+                  history={poll.history}
+                  suggestions={poll.suggestions}
+                  timezone={community.timezone}
+                  staff={staff}
+                  canVote={!suspended}
+                  canSeeDetails={!suspended}
+                />
+              ) : null,
+            )}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <SectionTitle
+          action={
+            (livePolls.length === 0 && createLinks) || admin ? (
+              <>
+                {livePolls.length === 0 ? createLinks : null}
+                {admin ? (
+                  <Link href={`/app/c/${slug}/seasons`} className="text-sm text-primary">
+                    Seasons
+                  </Link>
+                ) : null}
+              </>
+            ) : undefined
+          }
+        >
+          Active events
+        </SectionTitle>
+        <div className="space-y-3">
+          {activeEvents.filter((e) => e.status !== "polling").length === 0 && upcomingSessions.length === 0 && (
+            <p className="rounded-2xl border border-dashed border-line bg-card px-4 py-8 text-center text-ink/50">
+              Nothing on the pitch yet. Create an event to gather the squad.
+            </p>
           )}
+          {activeEvents
+            .filter((e) => e.status !== "polling")
+            .map((e) => {
+              const eventRsvps = rsvpRows.filter((r) => r.eventId === e.id);
+              const goingCount = eventRsvps.filter((r) => r.status === "going").length;
+              const notGoingCount = eventRsvps.filter((r) => r.status === "not_going").length;
+              const myStatus = eventRsvps.find((r) => r.userId === userId)?.status ?? null;
+              const guests = guestRows
+                .filter((g) => g.weeklyEventId === e.id)
+                .map((g) => ({
+                  id: g.id,
+                  label: g.label,
+                  hostName: nameOf(g.hostUserId),
+                  canRemove: Boolean(userId === g.hostUserId || admin),
+                }));
+              const guestCount = guests.length;
+              const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
+              const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
+              return (
+                <EventHomeCard
+                  key={e.id}
+                  slug={slug}
+                  eventId={e.id}
+                  title={e.title}
+                  startsAt={e.startsAt}
+                  timeZone={community.timezone}
+                  location={e.location || community.location}
+                  status={e.status}
+                  hasTime={e.hasTime}
+                  durationMinutes={e.durationMinutes}
+                  goingCount={goingCount}
+                  notGoingCount={notGoingCount}
+                  headcount={goingByEvent.get(e.id) ?? 0}
+                  minPlayers={e.minPlayers}
+                  myStatus={myStatus}
+                  canVote={Boolean(userId && rsvpOpen && !deadlinePassed && !suspended)}
+                  canAddGuest={Boolean(myStatus === "going" && !deadlinePassed && !suspended)}
+                  isAdmin={admin}
+                  canPostCost={Boolean(
+                    admin && e.paymentMode === "postpay" && e.totalCostCents == null && e.status !== "cancelled",
+                  )}
+                  canBook={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
+                  canCancel={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
+                  collectorName={e.collectorUserId ? nameOf(e.collectorUserId) : undefined}
+                  totalCostCents={e.totalCostCents}
+                  paymentInfo={e.paymentInfo}
+                  currency={community.currency}
+                  guestCount={guestCount}
+                  guests={guests}
+                />
+              );
+            })}
+          {upcomingSessions.map((s) => {
+            const waitlist = slotRows.filter((r) => r.sessionId === s.id && r.status === "occasional_pending").length;
+            return (
+              <EventCard
+                key={s.id}
+                href={`/app/c/${slug}/sessions/${s.id}`}
+                title={seasonName(s.seasonId)}
+                startsAt={s.startsAt}
+                timeZone={community.timezone}
+                location={seasonOf(s.seasonId)?.location || community.location}
+                status={s.status}
+                durationMinutes={seasonOf(s.seasonId)?.durationMinutes}
+                meta={admin && waitlist > 0 ? `Season session · Waitlist ${waitlist}` : "Season session"}
+              />
+            );
+          })}
         </div>
-        <ul className="mt-4 space-y-3">
-          {events.length === 0 && <li className="text-cream/50">No weekly events yet.</li>}
-          {events.map((e) => (
-            <li key={e.id}>
-              <Link href={`/app/c/${slug}/events/${e.id}`} className="flex items-center justify-between">
-                <span>{e.title}</span>
-                <Badge>{e.status.replaceAll("_", " ")}</Badge>
-              </Link>
-              <p className="text-xs text-cream/40">{formatWhen(e.startsAt, community.timezone)}</p>
-            </li>
-          ))}
-        </ul>
-      </Card>
-      <Card>
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-2xl text-lime">Season sessions</h2>
-          {admin && (
-            <Link href={`/app/c/${slug}/seasons/new`} className="text-sm text-lime">
-              New season
-            </Link>
-          )}
-        </div>
-        <ul className="mt-4 space-y-3">
-          {sessions.length === 0 && <li className="text-cream/50">No upcoming season sessions.</li>}
-          {sessions.map((s) => (
-            <li key={s.id}>
-              <Link href={`/app/c/${slug}/sessions/${s.id}`} className="flex items-center justify-between">
-                <span>{formatWhen(s.startsAt, community.timezone)}</span>
-                <Badge>{s.status}</Badge>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </Card>
+      </section>
+
+      {(pastEvents.length > 0 || pastSessions.length > 0) && (
+        <section>
+          <SectionTitle>Past events</SectionTitle>
+          <div className="space-y-3 opacity-90">
+            {pastEvents.slice(0, 8).map((e) => (
+              <EventCard
+                key={e.id}
+                href={`/app/c/${slug}/events/${e.id}`}
+                title={e.title}
+                startsAt={e.startsAt}
+                timeZone={community.timezone}
+                location={e.location || community.location}
+                status={e.status}
+                hasTime={e.hasTime}
+                durationMinutes={e.durationMinutes}
+              />
+            ))}
+            {pastSessions.map((s) => (
+              <EventCard
+                key={s.id}
+                href={`/app/c/${slug}/sessions/${s.id}`}
+                title={seasonName(s.seasonId)}
+                startsAt={s.startsAt}
+                timeZone={community.timezone}
+                location={seasonOf(s.seasonId)?.location || community.location}
+                status={s.status}
+                durationMinutes={seasonOf(s.seasonId)?.durationMinutes}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

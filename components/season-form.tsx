@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createSeason } from "@/lib/actions/season";
 import { WEEKDAY_LABELS } from "@/lib/utils";
-import { Field, Input } from "@/components/ui";
+import { Field, Input, Select } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 
 export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLocation: string }) {
@@ -37,8 +37,25 @@ export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLoc
       <Field label="Kickoff time">
         <Input name="timeLocal" type="time" required defaultValue="20:00" />
       </Field>
+      <fieldset className="space-y-3 rounded-2xl border border-line p-3">
+        <legend className="px-1 text-xs uppercase tracking-wider text-ink/50">Duration</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Hours">
+            <Input name="durationHours" type="number" min={0} max={12} defaultValue={1} required />
+          </Field>
+          <Field label="Minutes">
+            <Select name="durationMinutes" defaultValue="30">
+              <option value="0">0</option>
+              <option value="15">15</option>
+              <option value="30">30</option>
+              <option value="45">45</option>
+            </Select>
+          </Field>
+        </div>
+        <p className="text-xs text-ink/45">How long you will play each session. Default is 1 hour 30 minutes.</p>
+      </fieldset>
       <fieldset>
-        <legend className="mb-2 text-xs uppercase tracking-wider text-cream/60">Weekdays</legend>
+        <legend className="mb-2 text-xs uppercase tracking-wider text-ink/50">Weekdays</legend>
         <div className="flex flex-wrap gap-2">
           {WEEKDAY_LABELS.map((label, i) => (
             <label key={label} className="flex items-center gap-2 rounded-full border border-line px-3 py-1 text-sm">
@@ -48,16 +65,15 @@ export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLoc
           ))}
         </div>
       </fieldset>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Regular session price">
-          <Input name="regularPrice" type="number" step="0.01" min="1" required placeholder="12" />
-        </Field>
-        <Field label="Minimum players">
-          <Input name="minPlayers" type="number" min={2} defaultValue={10} />
-        </Field>
-      </div>
-      <p className="text-sm text-cream/50">
-        Occasional players pay 50% more. Invited replacements pay the regular rate to the absent contract player.
+      <Field label="Minimum players">
+        <Input name="minPlayers" type="number" min={2} defaultValue={10} />
+      </Field>
+      <Field label="Contract agreement deadline">
+        <Input name="signupClosesAt" type="datetime-local" required />
+      </Field>
+      <p className="text-sm text-ink/50">
+        Members who agree before this deadline become the contract list. Everyone else can play as an occasional.
+        Session rates for contract players and occasionals can be set later.
       </p>
       {error && <p className="text-sm text-clay">{error}</p>}
       <SubmitButton>Create season</SubmitButton>
