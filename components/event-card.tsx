@@ -37,6 +37,7 @@ export function EventCard({
   meta,
   hasTime = true,
   durationMinutes,
+  requests,
 }: {
   href: string;
   title: string;
@@ -47,6 +48,7 @@ export function EventCard({
   meta?: string;
   hasTime?: boolean | null;
   durationMinutes?: number | null;
+  requests?: string;
 }) {
   return (
     <Link
@@ -57,13 +59,17 @@ export function EventCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-display text-lg leading-tight text-ink">{title}</h3>
-          {status && <Badge>{status.replaceAll("_", " ")}</Badge>}
+          <div className="flex shrink-0 flex-wrap justify-end gap-1">
+            {requests ? <Badge tone="clay">{requests}</Badge> : null}
+            {status && <Badge>{status.replaceAll("_", " ")}</Badge>}
+          </div>
         </div>
         <p className="mt-1 text-sm text-ink/55">
           {formatEventTimeLine(startsAt, timeZone, hasTime, durationMinutes)}
           {location ? ` · ${location}` : ""}
         </p>
         {meta && <p className="mt-1 text-xs text-ink/45">{meta}</p>}
+        {requests ? <p className="mt-1 text-xs text-clay">{requests} waiting for approval</p> : null}
       </div>
     </Link>
   );

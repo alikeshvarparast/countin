@@ -35,6 +35,7 @@ export function EventHomeCard({
   currency,
   guestCount,
   guests,
+  pendingGuests = 0,
 }: {
   slug: string;
   eventId: string;
@@ -63,8 +64,10 @@ export function EventHomeCard({
   currency: string;
   guestCount: number;
   guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
+  pendingGuests?: number;
 }) {
   const href = `/app/c/${slug}/events/${eventId}`;
+  const requests = pendingGuests > 0 ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}` : "";
 
   return (
     <div className="rounded-2xl border border-line bg-card p-5 shadow-[0_8px_24px_rgba(63,58,52,0.06)]">
@@ -82,11 +85,15 @@ export function EventHomeCard({
                 {location ? ` · ${location}` : ""}
               </p>
               <p className="mt-1 text-xs text-ink/45">
-                {headcount} going · min {minPlayers}
+                {headcount} going
+                {guestCount > 0 ? ` · ${guestCount} guest${guestCount === 1 ? "" : "s"}` : ""}
+                {` · min ${minPlayers}`}
                 {myStatus === "going" ? " · You are in" : myStatus === "not_going" ? " · You are out" : ""}
               </p>
+              {requests ? <p className="mt-1 text-xs text-clay">{requests} waiting for approval</p> : null}
             </div>
             <div className="flex shrink-0 items-start gap-1">
+              {requests ? <Badge tone="clay">{requests}</Badge> : null}
               {status && <Badge>{status.replaceAll("_", " ")}</Badge>}
               <EventMenu
                 slug={slug}
@@ -119,7 +126,7 @@ export function EventHomeCard({
           <PresenceVote
             eventId={eventId}
             myStatus={myStatus}
-            goingCount={goingCount}
+            goingCount={headcount}
             notGoingCount={notGoingCount}
             canVote={canVote}
           />

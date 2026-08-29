@@ -98,6 +98,11 @@ export default async function WeeklyEventPage({
           </p>
         </div>
         <div className="flex items-start gap-2">
+          {pendingGuests.length > 0 && (
+            <Badge tone="clay">
+              {pendingGuests.length} guest request{pendingGuests.length === 1 ? "" : "s"}
+            </Badge>
+          )}
           <Badge tone={event.status === "booked" || event.status === "ready_to_book" ? "lime" : "line"}>
             {event.status.replaceAll("_", " ")}
           </Badge>
@@ -167,7 +172,12 @@ export default async function WeeklyEventPage({
           </DetailRow>
           <DetailRow label="Field">{fieldBookedLabel(event.status)}</DetailRow>
           <DetailRow label="Minimum">{event.minPlayers} players</DetailRow>
-          <DetailRow label="Headcount">{headcount} going</DetailRow>
+          <DetailRow label="Headcount">
+            {headcount} going
+            {approvedGuests.length > 0
+              ? ` · ${going.length} player${going.length === 1 ? "" : "s"} · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}`
+              : ""}
+          </DetailRow>
           <DetailRow label="Collector">{collector}</DetailRow>
           <DetailRow label="Cost">
             {event.totalCostCents != null ? formatMoney(event.totalCostCents, community.currency) : "Not posted yet"}
@@ -200,15 +210,21 @@ export default async function WeeklyEventPage({
         <div className="rounded-2xl border border-line bg-card p-5">
           <h3 className="font-display text-lg">People</h3>
           <p className="mt-1 text-sm text-ink/55">
-            {going.length} going · {notGoing.length} not going
+            {headcount} going
+            {approvedGuests.length > 0 ? ` · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}` : ""}
+            {" · "}
+            {notGoing.length} not going
             {deadlinePassed ? " · Presence is locked" : ""}
+            {pendingGuests.length > 0
+              ? ` · ${pendingGuests.length} guest request${pendingGuests.length === 1 ? "" : "s"}`
+              : ""}
           </p>
           {(canVote || myRsvp) && (
             <div className="mt-4">
               <PresenceVote
                 eventId={event.id}
                 myStatus={myRsvp?.rsvp.status}
-                goingCount={going.length}
+                goingCount={headcount}
                 notGoingCount={notGoing.length}
                 canVote={canVote}
               />

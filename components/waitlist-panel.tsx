@@ -28,9 +28,9 @@ export function WaitlistPanel({
   const body = (
     <>
       {embedded ? (
-        <p className="text-xs uppercase tracking-[0.18em] text-secondary">Waitlist · {pending.length}</p>
+        <p className="text-xs uppercase tracking-[0.18em] text-secondary">Occasional requests · {pending.length}</p>
       ) : (
-        <h3 className="font-display text-lg">Waitlist</h3>
+        <h3 className="font-display text-lg">Occasional requests{pending.length ? ` · ${pending.length}` : ""}</h3>
       )}
       <p className="mt-1 text-sm text-ink/55">Sorted by who asked first.</p>
       {rateMissing && canDecide && (

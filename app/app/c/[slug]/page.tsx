@@ -25,7 +25,7 @@ import {
   users,
   pollSuggestions,
 } from "@/lib/db/schema";
-import { eventWindowEnd, formatWhen } from "@/lib/utils";
+import { eventWindowEnd, formatWhen, pendingRequestLabel } from "@/lib/utils";
 import { listVoteHistory } from "@/lib/votes";
 import { goingHeadcount } from "@/lib/ledger";
 import { notFound } from "next/navigation";
@@ -283,6 +283,7 @@ export default async function CommunityOverviewPage({
                   status: g.status,
                 }));
               const guestCount = guests.filter((g) => g.status === "approved").length;
+              const pendingGuests = guests.filter((g) => g.status === "pending").length;
               const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
               const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
               return (
@@ -316,11 +317,16 @@ export default async function CommunityOverviewPage({
                   currency={community.currency}
                   guestCount={guestCount}
                   guests={guests}
+                  pendingGuests={pendingGuests}
                 />
               );
             })}
           {upcomingSessions.map((s) => {
-            const waitlist = slotRows.filter((r) => r.sessionId === s.id && r.status === "occasional_pending").length;
+            const occasionalPending = slotRows.filter((r) => r.sessionId === s.id && r.status === "occasional_pending").length;
+            const guestPending = guestRows.filter((g) => g.sessionId === s.id && g.status === "pending").length;
+            const approvedGuestCount = guestRows.filter((g) => g.sessionId === s.id && g.status === "approved").length;
+            const onSheet = slotRows.filter((r) => r.sessionId === s.id && r.status !== "occasional_pending").length;
+            const requests = pendingRequestLabel(guestPending, occasionalPending);
             return (
               <EventCard
                 key={s.id}
@@ -331,7 +337,8 @@ export default async function CommunityOverviewPage({
                 location={seasonOf(s.seasonId)?.location || community.location}
                 status={s.status}
                 durationMinutes={seasonOf(s.seasonId)?.durationMinutes}
-                meta={admin && waitlist > 0 ? `Season session · Waitlist ${waitlist}` : "Season session"}
+                meta={`${onSheet + approvedGuestCount} going${approvedGuestCount ? ` · ${approvedGuestCount} guest${approvedGuestCount === 1 ? "" : "s"}` : ""} · Season session`}
+                requests={requests || undefined}
               />
             );
           })}

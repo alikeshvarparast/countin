@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { db } from "@/lib/db";
 import { contracts, eventGuests, invitations, seasonSessions, seasons, sessionSlots, users } from "@/lib/db/schema";
-import { fieldBookedLabel, formatEventWhen, formatMoney, formatWhen } from "@/lib/utils";
+import { fieldBookedLabel, formatEventWhen, formatMoney, formatWhen, pendingRequestLabel } from "@/lib/utils";
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -84,7 +84,12 @@ export default async function SessionPage({
           </h2>
           <p className="mt-1 text-sm text-ink/60">{season.location || community.location || "Pitch TBD"}</p>
         </div>
-        <Badge>{sessionRow.status.replaceAll("_", " ")}</Badge>
+        <div className="flex flex-wrap items-start gap-2">
+          {pendingRequestLabel(pendingGuests.length, pending.length) ? (
+            <Badge tone="clay">{pendingRequestLabel(pendingGuests.length, pending.length)}</Badge>
+          ) : null}
+          <Badge>{sessionRow.status.replaceAll("_", " ")}</Badge>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-line bg-card p-5">
@@ -95,7 +100,12 @@ export default async function SessionPage({
           </DetailRow>
           <DetailRow label="Where">{season.location || community.location || "Pitch TBD"}</DetailRow>
           <DetailRow label="Field">{fieldBookedLabel(sessionRow.status)}</DetailRow>
-          <DetailRow label="On the sheet">{sheet.length + approvedGuests.length}</DetailRow>
+          <DetailRow label="On the sheet">
+            {sheet.length + approvedGuests.length} going
+            {approvedGuests.length > 0
+              ? ` · ${sheet.length} player${sheet.length === 1 ? "" : "s"} · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}`
+              : ""}
+          </DetailRow>
           <DetailRow label="Contract">
             {season.regularPriceCents > 0
               ? formatMoney(season.regularPriceCents, community.currency)
@@ -125,7 +135,13 @@ export default async function SessionPage({
 
       <div className="rounded-2xl border border-line bg-card p-5">
         <h3 className="font-display text-lg">People</h3>
-        <p className="mt-1 text-sm text-ink/55">{sheet.length} on the sheet · {approvedGuests.length} guests</p>
+        <p className="mt-1 text-sm text-ink/55">
+          {sheet.length + approvedGuests.length} going
+          {approvedGuests.length > 0 ? ` · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}` : ""}
+          {pendingGuests.length || pending.length
+            ? ` · ${pendingRequestLabel(pendingGuests.length, pending.length)}`
+            : ""}
+        </p>
         <div className="mt-4">
           <p className="text-xs uppercase tracking-[0.18em] text-secondary">Participants · {sheet.length}</p>
           <ul className="mt-2 space-y-2 text-sm">
@@ -159,26 +175,24 @@ export default async function SessionPage({
             </div>
           )}
         </div>
-        {(admin || pending.length > 0 || history.length > 0) && (
-          <WaitlistPanel
-            embedded
-            pending={pending.map(({ slot, user }) => ({
-              slotId: slot.id,
-              name: user.name,
-              askedAt: slot.createdAt,
-              status: slot.status,
-            }))}
-            history={history.map(({ slot, user }) => ({
-              slotId: slot.id,
-              name: user.name,
-              askedAt: slot.createdAt,
-              status: slot.status,
-            }))}
-            timezone={community.timezone}
-            canDecide={admin}
-            rateMissing={!season.occasionalPriceCents}
-          />
-        )}
+        <WaitlistPanel
+          embedded
+          pending={pending.map(({ slot, user }) => ({
+            slotId: slot.id,
+            name: user.name,
+            askedAt: slot.createdAt,
+            status: slot.status,
+          }))}
+          history={history.map(({ slot, user }) => ({
+            slotId: slot.id,
+            name: user.name,
+            askedAt: slot.createdAt,
+            status: slot.status,
+          }))}
+          timezone={community.timezone}
+          canDecide={admin}
+          rateMissing={!season.occasionalPriceCents}
+        />
       </div>
 
       {myContract && mySlot?.slot.status === "contract_present" && (

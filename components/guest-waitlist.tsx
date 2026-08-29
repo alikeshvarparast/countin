@@ -24,7 +24,9 @@ export function GuestWaitlist({
 }) {
   return (
     <div className="rounded-2xl border border-line bg-card p-5">
-      <h3 className="font-display text-lg">Guest requests</h3>
+      <h3 className="font-display text-lg">
+        Guest requests{pending.length ? ` · ${pending.length}` : ""}
+      </h3>
       <p className="mt-1 text-sm text-ink/55">
         New guests wait here. An admin can approve or ignore a request. The person who added them can cancel it.
       </p>

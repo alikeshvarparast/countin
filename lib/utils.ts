@@ -207,6 +207,17 @@ export function safeNextPath(raw: unknown) {
   return value;
 }
 
+export function pendingRequestLabel(guestPending: number, occasionalPending = 0) {
+  const parts: string[] = [];
+  if (guestPending > 0) {
+    parts.push(`${guestPending} guest request${guestPending === 1 ? "" : "s"}`);
+  }
+  if (occasionalPending > 0) {
+    parts.push(`${occasionalPending} occasional request${occasionalPending === 1 ? "" : "s"}`);
+  }
+  return parts.join(" · ");
+}
+
 export const WEEKDAY_LABELS = [
   "Sunday",
   "Monday",
