@@ -5,7 +5,7 @@ import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access"
 import { PollCard } from "@/components/poll-card";
 import { EventMenu } from "@/components/event-menu";
 import { GuestForm } from "@/components/guest-form";
-import { GuestWaitlist } from "@/components/guest-waitlist";
+import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
 import { PresenceVote } from "@/components/presence-vote";
 import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -54,7 +54,6 @@ export default async function WeeklyEventPage({
   const guests = db.select().from(eventGuests).where(eq(eventGuests.weeklyEventId, event.id)).all();
   const approvedGuests = guests.filter((g) => g.status === "approved");
   const pendingGuests = guests.filter((g) => g.status === "pending");
-  const guestHistory = guests.filter((g) => g.status === "rejected");
   const people = db.select({ id: users.id, name: users.name }).from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const going = rsvpRows.filter((r) => r.rsvp.status === "going");
@@ -183,6 +182,20 @@ export default async function WeeklyEventPage({
         </dl>
       </div>
 
+      <GuestWaitlist
+        pending={pendingGuests.map((g) => ({
+          id: g.id,
+          label: g.label,
+          hostName: nameOf(g.hostUserId),
+          hostUserId: g.hostUserId,
+          askedAt: g.createdAt,
+          status: g.status,
+        }))}
+        timezone={community.timezone}
+        canDecide={admin}
+        userId={userId}
+      />
+
       {event.status !== "polling" && (
         <div className="rounded-2xl border border-line bg-card p-5">
           <h3 className="font-display text-lg">People</h3>
@@ -223,36 +236,19 @@ export default async function WeeklyEventPage({
           </div>
           <div className="mt-5 border-t border-line pt-5">
             <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {approvedGuests.length}</p>
-            <ul className="mt-2 space-y-1 text-sm">
+            <ul className="mt-2 space-y-2 text-sm">
               {approvedGuests.length === 0 && <li className="text-ink/45">No guests on the list yet.</li>}
               {approvedGuests.map((g) => (
-                <li key={g.id}>
-                  {g.label} <span className="text-ink/45">(guest of {nameOf(g.hostUserId)})</span>
+                <li key={g.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {g.label} <span className="text-ink/45">(guest of {nameOf(g.hostUserId)})</span>
+                  </span>
+                  {(admin || userId === g.hostUserId) && <GuestCancelButton guestId={g.id} />}
                 </li>
               ))}
             </ul>
             {canAddGuest && <GuestForm eventId={event.id} />}
           </div>
-          {(admin || pendingGuests.length > 0 || guestHistory.length > 0) && (
-            <GuestWaitlist
-              pending={pendingGuests.map((g) => ({
-                id: g.id,
-                label: g.label,
-                hostName: nameOf(g.hostUserId),
-                askedAt: g.createdAt,
-                status: g.status,
-              }))}
-              history={guestHistory.map((g) => ({
-                id: g.id,
-                label: g.label,
-                hostName: nameOf(g.hostUserId),
-                askedAt: g.createdAt,
-                status: g.status,
-              }))}
-              timezone={community.timezone}
-              canDecide={admin}
-            />
-          )}
         </div>
       )}
     </div>

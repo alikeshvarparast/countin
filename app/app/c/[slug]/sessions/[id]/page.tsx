@@ -5,7 +5,7 @@ import { getCommunityBySlug, isAdmin } from "@/lib/access";
 import { applyOccasional, claimInvitation } from "@/lib/actions/season";
 import { AbsenceForm } from "@/components/absence-form";
 import { GuestForm } from "@/components/guest-form";
-import { GuestWaitlist } from "@/components/guest-waitlist";
+import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
@@ -55,7 +55,6 @@ export default async function SessionPage({
   const guests = db.select().from(eventGuests).where(eq(eventGuests.sessionId, sessionRow.id)).all();
   const approvedGuests = guests.filter((g) => g.status === "approved");
   const pendingGuests = guests.filter((g) => g.status === "pending");
-  const guestHistory = guests.filter((g) => g.status === "rejected");
   const people = db.select({ id: users.id, name: users.name }).from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const mySlot = slots.find((s) => s.slot.userId === userId);
@@ -110,6 +109,20 @@ export default async function SessionPage({
         </dl>
       </div>
 
+      <GuestWaitlist
+        pending={pendingGuests.map((g) => ({
+          id: g.id,
+          label: g.label,
+          hostName: nameOf(g.hostUserId),
+          hostUserId: g.hostUserId,
+          askedAt: g.createdAt,
+          status: g.status,
+        }))}
+        timezone={community.timezone}
+        canDecide={admin}
+        userId={userId}
+      />
+
       <div className="rounded-2xl border border-line bg-card p-5">
         <h3 className="font-display text-lg">People</h3>
         <p className="mt-1 text-sm text-ink/55">{sheet.length} on the sheet · {approvedGuests.length} guests</p>
@@ -129,11 +142,14 @@ export default async function SessionPage({
         </div>
         <div className="mt-5 border-t border-line pt-5">
           <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {approvedGuests.length}</p>
-          <ul className="mt-2 space-y-1 text-sm">
+          <ul className="mt-2 space-y-2 text-sm">
             {approvedGuests.length === 0 && <li className="text-ink/45">No guests on the list yet.</li>}
             {approvedGuests.map((g) => (
-              <li key={g.id}>
-                {g.label} <span className="text-ink/45">· guest of {nameOf(g.hostUserId)}</span>
+              <li key={g.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {g.label} <span className="text-ink/45">· guest of {nameOf(g.hostUserId)}</span>
+                </span>
+                {(admin || userId === g.hostUserId) && <GuestCancelButton guestId={g.id} />}
               </li>
             ))}
           </ul>
@@ -143,26 +159,6 @@ export default async function SessionPage({
             </div>
           )}
         </div>
-        {(admin || pendingGuests.length > 0 || guestHistory.length > 0) && (
-          <GuestWaitlist
-            pending={pendingGuests.map((g) => ({
-              id: g.id,
-              label: g.label,
-              hostName: nameOf(g.hostUserId),
-              askedAt: g.createdAt,
-              status: g.status,
-            }))}
-            history={guestHistory.map((g) => ({
-              id: g.id,
-              label: g.label,
-              hostName: nameOf(g.hostUserId),
-              askedAt: g.createdAt,
-              status: g.status,
-            }))}
-            timezone={community.timezone}
-            canDecide={admin}
-          />
-        )}
         {(admin || pending.length > 0 || history.length > 0) && (
           <WaitlistPanel
             embedded
