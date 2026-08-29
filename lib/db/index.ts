@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS season_signups (
   id TEXT PRIMARY KEY,
   season_id TEXT NOT NULL REFERENCES seasons(id),
   user_id TEXT NOT NULL REFERENCES users(id),
+  intent TEXT NOT NULL DEFAULT 'agree',
   created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS season_signups_season_user_uidx ON season_signups(season_id, user_id);
@@ -346,6 +347,7 @@ CREATE TABLE IF NOT EXISTS event_guests (
   session_id TEXT REFERENCES season_sessions(id),
   host_user_id TEXT NOT NULL REFERENCES users(id),
   label TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS event_guests_weekly_idx ON event_guests(weekly_event_id);
@@ -448,6 +450,18 @@ if (!hasColumn("memberships", "ledger_accepted_at")) {
 if (!hasColumn("users", "platform_role")) {
   sqlite.exec("ALTER TABLE users ADD COLUMN platform_role TEXT");
 }
+if (!hasColumn("event_guests", "status")) {
+  sqlite.exec("ALTER TABLE event_guests ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+  sqlite.exec("UPDATE event_guests SET status = 'approved'");
+}
+if (!hasColumn("season_signups", "intent")) {
+  sqlite.exec("ALTER TABLE season_signups ADD COLUMN intent TEXT NOT NULL DEFAULT 'agree'");
+}
+sqlite.exec(`
+  UPDATE seasons SET status = 'locked'
+  WHERE status = 'signup'
+    AND EXISTS (SELECT 1 FROM season_sessions WHERE season_sessions.season_id = seasons.id)
+`);
 
 sqlite.exec(`
 CREATE TABLE IF NOT EXISTS support_tickets (

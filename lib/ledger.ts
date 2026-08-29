@@ -16,7 +16,12 @@ export function attendanceShares(eventId: string) {
     .from(rsvps)
     .where(and(eq(rsvps.eventId, eventId), eq(rsvps.status, "going")))
     .all();
-  const guests = db.select().from(eventGuests).where(eq(eventGuests.weeklyEventId, eventId)).all();
+  const guests = db
+    .select()
+    .from(eventGuests)
+    .where(eq(eventGuests.weeklyEventId, eventId))
+    .all()
+    .filter((g) => g.status === "approved");
   const counts = new Map<string, number>();
   for (const row of going) counts.set(row.userId, (counts.get(row.userId) ?? 0) + 1);
   for (const guest of guests) {

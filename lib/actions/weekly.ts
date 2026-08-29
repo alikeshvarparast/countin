@@ -546,23 +546,45 @@ export async function addEventGuest(formData: FormData) {
         sessionId: null,
         hostUserId: user.id,
         label,
+        status: "pending",
         createdAt: t,
       })
       .run();
-    await syncWeeklyShares(eventId);
     const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
     if (community) {
+      await notifyMany(
+        listAdmins(community.id).map((a) => a.userId),
+        {
+          communityId: community.id,
+          type: "guest_pending",
+          title: `Guest waiting · ${event.title}`,
+          body: `${user.name} added ${label}. Approve them on the event page.`,
+          href: `/app/c/${community.slug}/events/${eventId}`,
+        },
+      );
       revalidatePath(`/app/c/${community.slug}/events/${eventId}`);
-      revalidatePath(`/app/c/${community.slug}/ledger`);
+      revalidatePath(`/app/c/${community.slug}`);
     }
     return { ok: true };
   }
 
   if (sessionId) {
-    const { seasonSessions } = await import("@/lib/db/schema");
+    const { seasonSessions, seasons, sessionSlots } = await import("@/lib/db/schema");
     const row = db.select().from(seasonSessions).where(eq(seasonSessions.id, sessionId)).get();
     if (!row) return { error: "Session not found." };
     requireActiveMember(row.communityId, user.id);
+    const season = db.select().from(seasons).where(eq(seasons.id, row.seasonId)).get();
+    if (!season || season.status !== "locked") {
+      return { error: "Guests can be added after the contract nights open." };
+    }
+    const hostSlot = db
+      .select()
+      .from(sessionSlots)
+      .where(and(eq(sessionSlots.sessionId, sessionId), eq(sessionSlots.userId, user.id)))
+      .get();
+    if (!hostSlot || hostSlot.status === "occasional_pending") {
+      return { error: "You need a place on this night before adding a guest." };
+    }
     db.insert(eventGuests)
       .values({
         id: createId(),
@@ -570,15 +592,102 @@ export async function addEventGuest(formData: FormData) {
         sessionId,
         hostUserId: user.id,
         label,
+        status: "pending",
         createdAt: t,
       })
       .run();
     const community = db.select().from(communities).where(eq(communities.id, row.communityId)).get();
-    if (community) revalidatePath(`/app/c/${community.slug}/sessions/${sessionId}`);
+    if (community) {
+      await notifyMany(
+        listAdmins(community.id).map((a) => a.userId),
+        {
+          communityId: community.id,
+          type: "guest_pending",
+          title: `Guest waiting · ${season.name}`,
+          body: `${user.name} added ${label}. Approve them on that night's page.`,
+          href: `/app/c/${community.slug}/sessions/${sessionId}`,
+        },
+      );
+      revalidatePath(`/app/c/${community.slug}/sessions/${sessionId}`);
+      revalidatePath(`/app/c/${community.slug}`);
+    }
     return { ok: true };
   }
 
   return { error: "Missing event." };
+}
+
+export async function decideEventGuest(formData: FormData) {
+  const user = await requireUser();
+  const guestId = String(formData.get("guestId") ?? "");
+  const decision = String(formData.get("decision") ?? "");
+  const guest = db.select().from(eventGuests).where(eq(eventGuests.id, guestId)).get();
+  if (!guest) return { error: "Guest not found." };
+  if (guest.status !== "pending") return { error: "This guest is not waiting." };
+
+  let communityId: string | null = null;
+  let title = "Event";
+  if (guest.weeklyEventId) {
+    const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, guest.weeklyEventId)).get();
+    if (!event) return { error: "Event not found." };
+    requireAdmin(event.communityId, user.id);
+    communityId = event.communityId;
+    title = event.title;
+  } else if (guest.sessionId) {
+    const { seasonSessions, seasons } = await import("@/lib/db/schema");
+    const row = db.select().from(seasonSessions).where(eq(seasonSessions.id, guest.sessionId)).get();
+    if (!row) return { error: "Session not found." };
+    requireAdmin(row.communityId, user.id);
+    const season = db.select().from(seasons).where(eq(seasons.id, row.seasonId)).get();
+    communityId = row.communityId;
+    title = season?.name ?? "Session";
+  } else {
+    return { error: "Missing event." };
+  }
+
+  const community = db.select().from(communities).where(eq(communities.id, communityId)).get();
+  if (!community) return { error: "Community not found." };
+  const href = guest.weeklyEventId
+    ? `/app/c/${community.slug}/events/${guest.weeklyEventId}`
+    : `/app/c/${community.slug}/sessions/${guest.sessionId}`;
+
+  if (decision === "rejected") {
+    db.update(eventGuests).set({ status: "rejected" }).where(eq(eventGuests.id, guestId)).run();
+    await notify({
+      userId: guest.hostUserId,
+      communityId: community.id,
+      type: "guest_rejected",
+      title: `Guest declined · ${title}`,
+      body: `${guest.label} was not approved.`,
+      href,
+    });
+  } else if (decision === "approved") {
+    db.update(eventGuests).set({ status: "approved" }).where(eq(eventGuests.id, guestId)).run();
+    if (guest.weeklyEventId) await syncWeeklyShares(guest.weeklyEventId);
+    await notify({
+      userId: guest.hostUserId,
+      communityId: community.id,
+      type: "guest_approved",
+      title: `Guest approved · ${title}`,
+      body: `${guest.label} is on the list.`,
+      href,
+    });
+  } else {
+    return { error: "Invalid decision." };
+  }
+
+  audit({
+    communityId: community.id,
+    actorId: user.id,
+    action: decision === "approved" ? "guest.approve" : "guest.decline",
+    entityType: "event_guest",
+    entityId: guest.id,
+  });
+
+  revalidatePath(href);
+  revalidatePath(`/app/c/${community.slug}`);
+  if (guest.weeklyEventId) revalidatePath(`/app/c/${community.slug}/ledger`);
+  return { ok: true };
 }
 
 export async function removeEventGuest(guestId: string) {

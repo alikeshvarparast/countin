@@ -142,6 +142,8 @@ async function main() {
         durationMinutes: 90,
         regularPriceCents: 1200,
         minPlayers: 10,
+        signupClosesAt: t + 7 * 24 * 60 * 60 * 1000,
+        status: "locked",
         createdAt: t,
       })
       .run();

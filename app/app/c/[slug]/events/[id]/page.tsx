@@ -5,6 +5,7 @@ import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access"
 import { PollCard } from "@/components/poll-card";
 import { EventMenu } from "@/components/event-menu";
 import { GuestForm } from "@/components/guest-form";
+import { GuestWaitlist } from "@/components/guest-waitlist";
 import { PresenceVote } from "@/components/presence-vote";
 import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -51,6 +52,9 @@ export default async function WeeklyEventPage({
     .where(eq(rsvps.eventId, event.id))
     .all();
   const guests = db.select().from(eventGuests).where(eq(eventGuests.weeklyEventId, event.id)).all();
+  const approvedGuests = guests.filter((g) => g.status === "approved");
+  const pendingGuests = guests.filter((g) => g.status === "pending");
+  const guestHistory = guests.filter((g) => g.status === "rejected");
   const people = db.select({ id: users.id, name: users.name }).from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const going = rsvpRows.filter((r) => r.rsvp.status === "going");
@@ -75,12 +79,15 @@ export default async function WeeklyEventPage({
         .filter((s) => s.kind === "event" && s.pollId === poll.id)
         .map((s) => ({ id: s.id, label: s.label, name: nameOf(s.suggestedById), status: s.status }))
     : [];
-  const guestItems = guests.map((g) => ({
-    id: g.id,
-    label: g.label,
-    hostName: nameOf(g.hostUserId),
-    canRemove: Boolean(userId === g.hostUserId || admin),
-  }));
+  const guestItems = guests
+    .filter((g) => g.status !== "rejected")
+    .map((g) => ({
+      id: g.id,
+      label: g.label,
+      hostName: nameOf(g.hostUserId),
+      canRemove: Boolean(userId === g.hostUserId || admin),
+      status: g.status,
+    }));
 
   return (
     <div className="space-y-6">
@@ -113,7 +120,7 @@ export default async function WeeklyEventPage({
             paymentInfo={event.paymentInfo}
             goingCount={going.length}
             notGoingCount={notGoing.length}
-            guestCount={guests.length}
+            guestCount={approvedGuests.length}
             guests={guestItems}
             showDetails={false}
           />
@@ -170,7 +177,7 @@ export default async function WeeklyEventPage({
           {event.totalCostCents != null && (
             <DetailRow label="Split among">
               {going.length} player{going.length === 1 ? "" : "s"}
-              {guests.length ? ` · ${guests.length} guest${guests.length === 1 ? "" : "s"}` : ""}
+              {approvedGuests.length ? ` · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}` : ""}
             </DetailRow>
           )}
         </dl>
@@ -215,10 +222,10 @@ export default async function WeeklyEventPage({
             </div>
           </div>
           <div className="mt-5 border-t border-line pt-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {guests.length}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {approvedGuests.length}</p>
             <ul className="mt-2 space-y-1 text-sm">
-              {guests.length === 0 && <li className="text-ink/45">No guests yet.</li>}
-              {guests.map((g) => (
+              {approvedGuests.length === 0 && <li className="text-ink/45">No guests on the list yet.</li>}
+              {approvedGuests.map((g) => (
                 <li key={g.id}>
                   {g.label} <span className="text-ink/45">(guest of {nameOf(g.hostUserId)})</span>
                 </li>
@@ -226,6 +233,26 @@ export default async function WeeklyEventPage({
             </ul>
             {canAddGuest && <GuestForm eventId={event.id} />}
           </div>
+          {(admin || pendingGuests.length > 0 || guestHistory.length > 0) && (
+            <GuestWaitlist
+              pending={pendingGuests.map((g) => ({
+                id: g.id,
+                label: g.label,
+                hostName: nameOf(g.hostUserId),
+                askedAt: g.createdAt,
+                status: g.status,
+              }))}
+              history={guestHistory.map((g) => ({
+                id: g.id,
+                label: g.label,
+                hostName: nameOf(g.hostUserId),
+                askedAt: g.createdAt,
+                status: g.status,
+              }))}
+              timezone={community.timezone}
+              canDecide={admin}
+            />
+          )}
         </div>
       )}
     </div>

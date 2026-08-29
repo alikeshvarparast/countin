@@ -72,8 +72,8 @@ export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLoc
         <Input name="signupClosesAt" type="datetime-local" required />
       </Field>
       <p className="text-sm text-ink/50">
-        Members who agree before this deadline become the contract list. Everyone else can play as an occasional.
-        Session rates for contract players and occasionals can be set later.
+        Members first say whether they take the contract. Nights are created only after enough people agree and an
+        admin ends voting, or when this deadline arrives. After that, guests and occasionals join a specific night.
       </p>
       {error && <p className="text-sm text-clay">{error}</p>}
       <SubmitButton>Create season</SubmitButton>

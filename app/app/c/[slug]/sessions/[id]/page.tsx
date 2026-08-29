@@ -1,10 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
 import { applyOccasional, claimInvitation } from "@/lib/actions/season";
 import { AbsenceForm } from "@/components/absence-form";
 import { GuestForm } from "@/components/guest-form";
+import { GuestWaitlist } from "@/components/guest-waitlist";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
@@ -33,6 +34,7 @@ export default async function SessionPage({
   if (!sessionRow || sessionRow.communityId !== community.id) notFound();
   const season = db.select().from(seasons).where(eq(seasons.id, sessionRow.seasonId)).get();
   if (!season) notFound();
+  if (season.status !== "locked") redirect(`/app/c/${slug}/seasons/${season.id}`);
   const session = await auth();
   const userId = session?.user?.id;
   const admin = userId ? isAdmin(community.id, userId) : false;
@@ -51,6 +53,9 @@ export default async function SessionPage({
     .all();
   const invites = db.select().from(invitations).where(eq(invitations.sessionId, sessionRow.id)).all();
   const guests = db.select().from(eventGuests).where(eq(eventGuests.sessionId, sessionRow.id)).all();
+  const approvedGuests = guests.filter((g) => g.status === "approved");
+  const pendingGuests = guests.filter((g) => g.status === "pending");
+  const guestHistory = guests.filter((g) => g.status === "rejected");
   const people = db.select({ id: users.id, name: users.name }).from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const mySlot = slots.find((s) => s.slot.userId === userId);
@@ -91,7 +96,7 @@ export default async function SessionPage({
           </DetailRow>
           <DetailRow label="Where">{season.location || community.location || "Pitch TBD"}</DetailRow>
           <DetailRow label="Field">{fieldBookedLabel(sessionRow.status)}</DetailRow>
-          <DetailRow label="On the sheet">{sheet.length + guests.length}</DetailRow>
+          <DetailRow label="On the sheet">{sheet.length + approvedGuests.length}</DetailRow>
           <DetailRow label="Contract">
             {season.regularPriceCents > 0
               ? formatMoney(season.regularPriceCents, community.currency)
@@ -107,7 +112,7 @@ export default async function SessionPage({
 
       <div className="rounded-2xl border border-line bg-card p-5">
         <h3 className="font-display text-lg">People</h3>
-        <p className="mt-1 text-sm text-ink/55">{sheet.length} on the sheet · {guests.length} guests</p>
+        <p className="mt-1 text-sm text-ink/55">{sheet.length} on the sheet · {approvedGuests.length} guests</p>
         <div className="mt-4">
           <p className="text-xs uppercase tracking-[0.18em] text-secondary">Participants · {sheet.length}</p>
           <ul className="mt-2 space-y-2 text-sm">
@@ -123,10 +128,10 @@ export default async function SessionPage({
           </ul>
         </div>
         <div className="mt-5 border-t border-line pt-5">
-          <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {guests.length}</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {approvedGuests.length}</p>
           <ul className="mt-2 space-y-1 text-sm">
-            {guests.length === 0 && <li className="text-ink/45">No guests yet.</li>}
-            {guests.map((g) => (
+            {approvedGuests.length === 0 && <li className="text-ink/45">No guests on the list yet.</li>}
+            {approvedGuests.map((g) => (
               <li key={g.id}>
                 {g.label} <span className="text-ink/45">· guest of {nameOf(g.hostUserId)}</span>
               </li>
@@ -138,6 +143,26 @@ export default async function SessionPage({
             </div>
           )}
         </div>
+        {(admin || pendingGuests.length > 0 || guestHistory.length > 0) && (
+          <GuestWaitlist
+            pending={pendingGuests.map((g) => ({
+              id: g.id,
+              label: g.label,
+              hostName: nameOf(g.hostUserId),
+              askedAt: g.createdAt,
+              status: g.status,
+            }))}
+            history={guestHistory.map((g) => ({
+              id: g.id,
+              label: g.label,
+              hostName: nameOf(g.hostUserId),
+              askedAt: g.createdAt,
+              status: g.status,
+            }))}
+            timezone={community.timezone}
+            canDecide={admin}
+          />
+        )}
         {(admin || pending.length > 0 || history.length > 0) && (
           <WaitlistPanel
             embedded

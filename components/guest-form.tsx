@@ -21,6 +21,7 @@ export function GuestForm({ eventId, sessionId }: { eventId?: string; sessionId?
         <Field label="Add a guest">
           <Input name="label" required placeholder="Ali's friend" />
         </Field>
+        <p className="mt-1 text-xs text-ink/45">They go on the waitlist until an admin approves them.</p>
       </div>
       <SubmitButton>Add guest</SubmitButton>
       {error && <p className="text-sm text-clay sm:pb-2">{error}</p>}

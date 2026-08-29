@@ -62,7 +62,7 @@ export function EventHomeCard({
   paymentInfo?: string | null;
   currency: string;
   guestCount: number;
-  guests?: { id: string; label: string; hostName: string; canRemove: boolean }[];
+  guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
 }) {
   const href = `/app/c/${slug}/events/${eventId}`;
 

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { addContract, agreeToSeason, lockSeasonIfDue } from "@/lib/actions/season";
+import { addContract, closeSeasonSignup, lockSeasonIfDue, setSeasonIntent } from "@/lib/actions/season";
 import { SubmitButton } from "@/components/submit-button";
 import { SeasonRatesForm } from "@/components/season-rates-form";
 import { Badge, Card, Field, Input } from "@/components/ui";
@@ -38,8 +38,13 @@ export default async function SeasonDetailPage({
     .innerJoin(users, eq(users.id, seasonSignups.userId))
     .where(eq(seasonSignups.seasonId, season.id))
     .all();
-  const mySignup = userId ? signupRows.some((r) => r.signup.userId === userId) : false;
+  const inRows = signupRows.filter((r) => r.signup.intent !== "decline");
+  const outRows = signupRows.filter((r) => r.signup.intent === "decline");
+  const mySignup = userId ? signupRows.find((r) => r.signup.userId === userId) : undefined;
   const myContract = userId ? contractRows.some((r) => r.contract.userId === userId) : false;
+  const enough = inRows.length >= season.minPlayers;
+  const deadlinePassed = Boolean(season.signupClosesAt && Date.now() >= season.signupClosesAt);
+  const nightsOpen = season.status === "locked";
   const sessions = db
     .select()
     .from(seasonSessions)
@@ -85,26 +90,76 @@ export default async function SeasonDetailPage({
         <Card>
           <h3 className="font-display text-lg">Contract agreement</h3>
           <p className="mt-1 text-sm text-ink/60">
-            Agree by {formatWhen(season.signupClosesAt, community.timezone)} to be a fixed long-term player. After that,
-            everyone else is occasional.
+            Say whether you want a contract place. Nights are not created yet. They open when at least{" "}
+            {season.minPlayers} {season.minPlayers === 1 ? "person agrees" : "people agree"} and an admin ends voting
+            {season.signupClosesAt ? `, or when the deadline (${formatWhen(season.signupClosesAt, community.timezone)}) arrives` : ""}.
           </p>
-          {!mySignup && !myContract && (
+          <p className="mt-2 text-sm">
+            {inRows.length} of {season.minPlayers} needed
+            {deadlinePassed && !enough ? " · Deadline passed, still waiting for enough people" : ""}
+          </p>
+          {!myContract && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <form
+                action={async () => {
+                  "use server";
+                  await setSeasonIntent(season.id, "agree");
+                }}
+              >
+                <SubmitButton disabled={mySignup?.signup.intent === "agree"}>I agree to the contract</SubmitButton>
+              </form>
+              <form
+                action={async () => {
+                  "use server";
+                  await setSeasonIntent(season.id, "decline");
+                }}
+              >
+                <SubmitButton variant="ghost" disabled={mySignup?.signup.intent === "decline"}>
+                  Not this season
+                </SubmitButton>
+              </form>
+            </div>
+          )}
+          {mySignup?.signup.intent === "agree" && <p className="mt-3 text-sm">You agreed to the contract.</p>}
+          {mySignup?.signup.intent === "decline" && <p className="mt-3 text-sm">You said you will not take a contract.</p>}
+          {myContract && <p className="mt-3 text-sm">You already have a contract place.</p>}
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-secondary">In · {inRows.length}</p>
+              <ul className="mt-1 space-y-1 text-sm">
+                {inRows.length === 0 && <li className="text-ink/45">No one yet.</li>}
+                {inRows.map(({ user }) => (
+                  <li key={user.id}>{user.name}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-secondary">Out · {outRows.length}</p>
+              <ul className="mt-1 space-y-1 text-sm">
+                {outRows.length === 0 && <li className="text-ink/45">No one yet.</li>}
+                {outRows.map(({ user }) => (
+                  <li key={user.id}>{user.name}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          {admin && (
             <form
-              className="mt-4"
+              className="mt-5 border-t border-line pt-4"
               action={async () => {
                 "use server";
-                await agreeToSeason(season.id);
+                await closeSeasonSignup(season.id);
               }}
             >
-              <SubmitButton>I&apos;m in for the contract</SubmitButton>
+              <SubmitButton disabled={!enough}>End voting and open the nights</SubmitButton>
+              {!enough && (
+                <p className="mt-2 text-sm text-ink/50">
+                  Need {season.minPlayers - inRows.length} more{" "}
+                  {season.minPlayers - inRows.length === 1 ? "agreement" : "agreements"}.
+                </p>
+              )}
             </form>
           )}
-          {(mySignup || myContract) && <p className="mt-3 text-sm">You&apos;re on the agreement list.</p>}
-          <ul className="mt-3 space-y-1 text-sm">
-            {signupRows.map(({ user }) => (
-              <li key={user.id}>{user.name}</li>
-            ))}
-          </ul>
         </Card>
       )}
 
@@ -123,7 +178,7 @@ export default async function SeasonDetailPage({
         </Card>
       )}
 
-      {admin && (
+      {nightsOpen && admin && (
         <Card>
           <h3 className="font-display text-lg">Add contract player</h3>
           <form
@@ -147,20 +202,22 @@ export default async function SeasonDetailPage({
         </Card>
       )}
 
-      <Card>
-        <h3 className="font-display text-lg">Contracts</h3>
-        <ul className="mt-3 space-y-2">
-          {contractRows.length === 0 && <li className="text-cream/50">None yet.</li>}
-          {contractRows.map(({ contract, user }) => (
-            <li key={contract.id} className="flex items-center justify-between">
-              <span>{user.name}</span>
-              {contract.prepaid && <Badge tone="lime">prepaid</Badge>}
-            </li>
-          ))}
-        </ul>
-      </Card>
+      {nightsOpen && (
+        <Card>
+          <h3 className="font-display text-lg">Contracts</h3>
+          <ul className="mt-3 space-y-2">
+            {contractRows.length === 0 && <li className="text-cream/50">None yet.</li>}
+            {contractRows.map(({ contract, user }) => (
+              <li key={contract.id} className="flex items-center justify-between">
+                <span>{user.name}</span>
+                {contract.prepaid && <Badge tone="lime">prepaid</Badge>}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
-      {admin && (
+      {nightsOpen && admin && (
         <WaitlistPanel
           pending={pendingWaitlist.map(({ slot, user, session: s }) => ({
             slotId: slot.id,
@@ -182,19 +239,23 @@ export default async function SeasonDetailPage({
         />
       )}
 
-      <section>
-        <h3 className="font-display text-lg">Sessions</h3>
-        <ul className="mt-3 space-y-2">
-          {sessions.map((s) => (
-            <li key={s.id}>
-              <Link href={`/app/c/${slug}/sessions/${s.id}`} className="flex items-center justify-between rounded-xl border border-line px-4 py-3 hover:border-lime/40">
-                <span>{formatEventWhen(s.startsAt, community.timezone, true, season.durationMinutes)}</span>
-                <Badge>{s.status}</Badge>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {nightsOpen && (
+        <section>
+          <h3 className="font-display text-lg">Nights</h3>
+          <p className="mt-1 text-sm text-ink/55">Each date is its own event. Guests and occasionals ask for a specific night.</p>
+          <ul className="mt-3 space-y-2">
+            {sessions.length === 0 && <li className="text-sm text-ink/45">No nights yet.</li>}
+            {sessions.map((s) => (
+              <li key={s.id}>
+                <Link href={`/app/c/${slug}/sessions/${s.id}`} className="flex items-center justify-between rounded-xl border border-line px-4 py-3 hover:border-lime/40">
+                  <span>{formatEventWhen(s.startsAt, community.timezone, true, season.durationMinutes)}</span>
+                  <Badge>{s.status}</Badge>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

@@ -41,12 +41,14 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">{s.name}</h3>
                   <Badge>
-                    {s.timeLocal}
-                    {s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}
+                    {s.status === "signup" ? "voting" : s.timeLocal}
+                    {s.status !== "signup" && s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}
                   </Badge>
                 </div>
                 <p className="mt-1 text-sm text-cream/50">
-                  {s.startDate} → {s.endDate} · {days}
+                  {s.status === "signup"
+                    ? "Contract vote — nights not created yet"
+                    : `${s.startDate} → ${s.endDate} · ${days}`}
                 </p>
               </Card>
             </Link>

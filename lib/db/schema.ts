@@ -245,6 +245,7 @@ export const seasonSignups = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id),
+    intent: text("intent").notNull().default("agree"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("season_signups_season_user_uidx").on(t.seasonId, t.userId)],
@@ -528,6 +529,7 @@ export const eventGuests = sqliteTable(
       .notNull()
       .references(() => users.id),
     label: text("label").notNull(),
+    status: text("status").notNull().default("pending"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [

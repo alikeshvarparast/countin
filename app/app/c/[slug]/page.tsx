@@ -6,6 +6,7 @@ import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access"
 import { EventCard, SectionTitle } from "@/components/event-card";
 import { EventHomeCard } from "@/components/event-home-card";
 import { PollCard } from "@/components/poll-card";
+import { lockSeasonIfDue } from "@/lib/actions/season";
 import { db } from "@/lib/db";
 import {
   clubPollOptions,
@@ -16,6 +17,7 @@ import {
   polls,
   rsvps,
   seasonSessions,
+  seasonSignups,
   seasons,
   sessionSlots,
   votes,
@@ -70,19 +72,26 @@ export default async function CommunityOverviewPage({
     return (eventWindowEnd(e) ?? e.startsAt) < now;
   });
 
+  const seasonRowsRaw = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
+  for (const row of seasonRowsRaw) {
+    if (row.status === "signup") await lockSeasonIfDue(row.id);
+  }
+  const seasonRows = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
   const sessions = db
     .select()
     .from(seasonSessions)
     .where(eq(seasonSessions.communityId, community.id))
     .orderBy(desc(seasonSessions.startsAt))
     .all();
-  const seasonRows = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
   const seasonOf = (id: string) => seasonRows.find((s) => s.id === id);
   const seasonName = (id: string) => seasonOf(id)?.name ?? "Season";
   const sessionEnd = (s: (typeof sessions)[number]) =>
     s.startsAt + (seasonOf(s.seasonId)?.durationMinutes ?? 120) * 60 * 1000;
-  const upcomingSessions = sessions.filter((s) => sessionEnd(s) >= now);
-  const pastSessions = sessions.filter((s) => sessionEnd(s) < now).slice(0, 8);
+  const openSeasonIds = new Set(seasonRows.filter((s) => s.status === "locked").map((s) => s.id));
+  const upcomingSessions = sessions.filter((s) => openSeasonIds.has(s.seasonId) && sessionEnd(s) >= now);
+  const pastSessions = sessions.filter((s) => openSeasonIds.has(s.seasonId) && sessionEnd(s) < now).slice(0, 8);
+  const votingSeasons = seasonRows.filter((s) => s.status === "signup");
+  const signupRows = db.select().from(seasonSignups).all();
 
   const eventPolls = events
     .filter((e) => e.status === "polling")
@@ -213,6 +222,27 @@ export default async function CommunityOverviewPage({
         </section>
       )}
 
+      {votingSeasons.length > 0 && (
+        <section>
+          <SectionTitle>Contract agreement</SectionTitle>
+          <div className="space-y-3">
+            {votingSeasons.map((s) => {
+              const inCount = signupRows.filter((r) => r.seasonId === s.id && r.intent !== "decline").length;
+              return (
+                <EventCard
+                  key={s.id}
+                  href={`/app/c/${slug}/seasons/${s.id}`}
+                  title={s.name}
+                  location={s.location || community.location}
+                  status="signup"
+                  meta={`${inCount} of ${s.minPlayers} agreed · nights open after voting ends`}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section>
         <SectionTitle
           action={
@@ -244,14 +274,15 @@ export default async function CommunityOverviewPage({
               const notGoingCount = eventRsvps.filter((r) => r.status === "not_going").length;
               const myStatus = eventRsvps.find((r) => r.userId === userId)?.status ?? null;
               const guests = guestRows
-                .filter((g) => g.weeklyEventId === e.id)
+                .filter((g) => g.weeklyEventId === e.id && g.status !== "rejected")
                 .map((g) => ({
                   id: g.id,
                   label: g.label,
                   hostName: nameOf(g.hostUserId),
                   canRemove: Boolean(userId === g.hostUserId || admin),
+                  status: g.status,
                 }));
-              const guestCount = guests.length;
+              const guestCount = guests.filter((g) => g.status === "approved").length;
               const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
               const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
               return (

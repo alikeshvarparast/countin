@@ -52,7 +52,7 @@ export function EventMenu({
   goingCount?: number;
   notGoingCount?: number;
   guestCount?: number;
-  guests?: { id: string; label: string; hostName: string; canRemove: boolean }[];
+  guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
   showDetails?: boolean;
 }) {
   const router = useRouter();
@@ -186,7 +186,11 @@ export function EventMenu({
             {guests?.map((g) => (
               <li key={g.id} className="flex items-center justify-between gap-2">
                 <span>
-                  {g.label} <span className="text-ink/45">(guest of {g.hostName})</span>
+                  {g.label}{" "}
+                  <span className="text-ink/45">
+                    (guest of {g.hostName}
+                    {g.status === "pending" ? " · waiting" : ""})
+                  </span>
                 </span>
                 {g.canRemove && (
                   <form
