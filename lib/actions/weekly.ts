@@ -577,6 +577,7 @@ export async function addEventGuest(formData: FormData) {
     if (!season || season.status !== "locked") {
       return { error: "Guests can be added after this season's nights are created." };
     }
+    if (row.status === "cancelled") return { error: "This night was cancelled." };
     const hostSlot = db
       .select()
       .from(sessionSlots)

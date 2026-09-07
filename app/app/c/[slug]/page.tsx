@@ -84,8 +84,12 @@ export default async function CommunityOverviewPage({
   const sessionEnd = (s: (typeof sessions)[number]) =>
     s.startsAt + (seasonOf(s.seasonId)?.durationMinutes ?? 120) * 60 * 1000;
   const openSeasonIds = new Set(seasonRows.filter((s) => s.status === "locked").map((s) => s.id));
-  const upcomingSessions = sessions.filter((s) => openSeasonIds.has(s.seasonId) && sessionEnd(s) >= now);
-  const pastSessions = sessions.filter((s) => openSeasonIds.has(s.seasonId) && sessionEnd(s) < now).slice(0, 8);
+  const upcomingSessions = sessions.filter(
+    (s) => openSeasonIds.has(s.seasonId) && s.status !== "cancelled" && sessionEnd(s) >= now,
+  );
+  const pastSessions = sessions
+    .filter((s) => openSeasonIds.has(s.seasonId) && s.status !== "cancelled" && sessionEnd(s) < now)
+    .slice(0, 8);
   const votingSeasons = seasonRows.filter((s) => s.status === "signup");
   const agreedSeasons = seasonRows.filter((s) => s.status === "agreed");
   const signupRows = db.select().from(seasonSignups).all();
@@ -321,7 +325,7 @@ export default async function CommunityOverviewPage({
                     admin && e.paymentMode === "postpay" && e.totalCostCents == null && e.status !== "cancelled",
                   )}
                   canBook={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
-                  canCancel={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
+                  canCancel={Boolean(admin && e.status !== "cancelled")}
                   collectorName={e.collectorUserId ? nameOf(e.collectorUserId) : undefined}
                   totalCostCents={e.totalCostCents}
                   paymentInfo={e.paymentInfo}

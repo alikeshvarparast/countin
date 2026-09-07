@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { applyOccasional, claimInvitation } from "@/lib/actions/season";
+import { applyOccasional, cancelSeasonSession, claimInvitation } from "@/lib/actions/season";
 import { AbsenceForm } from "@/components/absence-form";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
@@ -66,6 +66,7 @@ export default async function SessionPage({
     .filter((s) => s.slot.status === "occasional_approved" || s.slot.status === "occasional_rejected")
     .sort((a, b) => a.slot.createdAt - b.slot.createdAt);
   const myWaitIndex = pending.findIndex((s) => s.slot.userId === userId);
+  const nightCancelled = sessionRow.status === "cancelled";
   const claimable = invites.filter((inv) => {
     if (inv.status !== "open") return false;
     if (myContract) return false;
@@ -89,6 +90,18 @@ export default async function SessionPage({
             <Badge tone="clay">{pendingRequestLabel(pendingGuests.length, pending.length)}</Badge>
           ) : null}
           <Badge>{sessionRow.status.replaceAll("_", " ")}</Badge>
+          {admin && sessionRow.status !== "cancelled" && (
+            <form
+              action={async () => {
+                "use server";
+                await cancelSeasonSession(sessionRow.id);
+              }}
+            >
+              <SubmitButton variant="danger" size="sm">
+                Cancel night
+              </SubmitButton>
+            </form>
+          )}
         </div>
       </div>
 
@@ -169,7 +182,7 @@ export default async function SessionPage({
               </li>
             ))}
           </ul>
-          {mySlot && mySlot.slot.status !== "occasional_pending" && (
+          {mySlot && mySlot.slot.status !== "occasional_pending" && !nightCancelled && (
             <div className="mt-3">
               <GuestForm sessionId={sessionRow.id} />
             </div>
@@ -195,7 +208,7 @@ export default async function SessionPage({
         />
       </div>
 
-      {myContract && mySlot?.slot.status === "contract_present" && (
+      {myContract && mySlot?.slot.status === "contract_present" && !nightCancelled && (
         <div className="rounded-2xl border border-line bg-card p-5">
           <h3 className="font-display text-lg">Can&apos;t make it?</h3>
           <AbsenceForm sessionId={sessionRow.id} />
@@ -212,7 +225,7 @@ export default async function SessionPage({
         </div>
       )}
 
-      {!myContract && !mySlot && (
+      {!myContract && !mySlot && !nightCancelled && (
         <div className="rounded-2xl border border-line bg-card p-5">
           <h3 className="font-display text-lg">Play occasionally</h3>
           <p className="mt-1 text-sm text-ink/60">
@@ -233,7 +246,7 @@ export default async function SessionPage({
         </div>
       )}
 
-      {claimable.map((inv) => (
+      {!nightCancelled && claimable.map((inv) => (
         <div key={inv.id} className="rounded-2xl border border-line bg-card p-5">
           <h3 className="font-display text-lg">
             {inv.type === "private" ? "Private replacement invite" : "Open replacement invite"}

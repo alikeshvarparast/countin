@@ -272,6 +272,7 @@ export async function createSeasonNights(seasonId: string) {
   requireAdmin(season.communityId, user.id);
   if (season.status === "signup") return { error: "Close the agreement first." };
   if (season.status === "locked") return { error: "Nights are already created." };
+  if (season.status === "cancelled") return { error: "This season was cancelled." };
   if (season.status !== "agreed") return { error: "This season is not ready for nights." };
 
   slotContractsOnFutureNights(season);
@@ -298,6 +299,84 @@ export async function createSeasonNights(seasonId: string) {
     );
     revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
     revalidatePath(communityPath(community.slug, "/seasons"));
+    revalidatePath(communityPath(community.slug));
+  }
+  return { ok: true };
+}
+
+export async function cancelSeason(seasonId: string) {
+  const user = await requireUser();
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  if (season.status === "cancelled") return { error: "This season is already cancelled." };
+
+  db.update(seasons).set({ status: "cancelled" }).where(eq(seasons.id, seasonId)).run();
+  db.update(seasonSessions).set({ status: "cancelled" }).where(eq(seasonSessions.seasonId, seasonId)).run();
+
+  audit({
+    communityId: season.communityId,
+    actorId: user.id,
+    action: "season.cancel",
+    entityType: "season",
+    entityId: seasonId,
+  });
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) {
+    const wasAgreement = season.status === "signup" || season.status === "agreed";
+    await notifyMany(
+      listApprovedMembers(community.id).map((m) => m.userId),
+      {
+        communityId: community.id,
+        type: "season_cancelled",
+        title: `Cancelled · ${season.name}`,
+        body: wasAgreement
+          ? `The contract agreement for ${season.name} was cancelled.`
+          : `${season.name} and its nights were cancelled.`,
+        href: communityPath(community.slug, `/seasons/${seasonId}`),
+      },
+    );
+    revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
+    revalidatePath(communityPath(community.slug, "/seasons"));
+    revalidatePath(communityPath(community.slug));
+  }
+  return { ok: true };
+}
+
+export async function cancelSeasonSession(sessionId: string) {
+  const user = await requireUser();
+  const session = db.select().from(seasonSessions).where(eq(seasonSessions.id, sessionId)).get();
+  if (!session) return { error: "Session not found." };
+  requireAdmin(session.communityId, user.id);
+  if (session.status === "cancelled") return { error: "This night is already cancelled." };
+
+  const season = db.select().from(seasons).where(eq(seasons.id, session.seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  if (season.status === "cancelled") return { error: "This season is already cancelled." };
+
+  db.update(seasonSessions).set({ status: "cancelled" }).where(eq(seasonSessions.id, sessionId)).run();
+
+  audit({
+    communityId: session.communityId,
+    actorId: user.id,
+    action: "session.cancel",
+    entityType: "season_session",
+    entityId: sessionId,
+  });
+  const community = db.select().from(communities).where(eq(communities.id, session.communityId)).get();
+  if (community) {
+    await notifyMany(
+      listApprovedMembers(community.id).map((m) => m.userId),
+      {
+        communityId: community.id,
+        type: "session_cancelled",
+        title: `Cancelled night · ${season.name}`,
+        body: `One ${season.name} night was cancelled.`,
+        href: communityPath(community.slug, `/sessions/${sessionId}`),
+      },
+    );
+    revalidatePath(communityPath(community.slug, `/sessions/${sessionId}`));
+    revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
     revalidatePath(communityPath(community.slug));
   }
   return { ok: true };
@@ -354,6 +433,7 @@ export async function addContract(formData: FormData) {
   if (season.status === "signup") {
     return { error: "Close the agreement before adding someone to this season's contract." };
   }
+  if (season.status === "cancelled") return { error: "This season was cancelled." };
 
   const target = db.select().from(users).where(eq(users.email, email)).get();
   if (!target) return { error: "No account with that email." };
@@ -548,6 +628,7 @@ export async function applyOccasional(sessionId: string) {
   if (!seasonRow || seasonRow.status !== "locked") {
     return { error: "This season's nights are not open yet." };
   }
+  if (session.status === "cancelled") return { error: "This night was cancelled." };
   if (hasContract(session.seasonId, user.id)) {
     return { error: "Contract players are already on the list." };
   }

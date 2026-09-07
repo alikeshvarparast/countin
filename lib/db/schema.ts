@@ -229,7 +229,7 @@ export const seasons = sqliteTable(
     occasionalPriceCents: integer("occasional_price_cents"),
     minPlayers: integer("min_players").notNull().default(10),
     signupClosesAt: integer("signup_closes_at"),
-    status: text("status").notNull().default("signup"), // signup | agreed | locked
+    status: text("status").notNull().default("signup"), // signup | agreed | locked | cancelled
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("seasons_community_idx").on(t.communityId)],

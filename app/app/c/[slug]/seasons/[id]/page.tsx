@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { addContract, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
+import { addContract, cancelSeason, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
 import { SubmitButton } from "@/components/submit-button";
 import { SeasonRatesForm } from "@/components/season-rates-form";
 import { Badge, Card, Field, Input } from "@/components/ui";
@@ -46,6 +46,7 @@ export default async function SeasonDetailPage({
   const votingOpen = season.status === "signup";
   const agreementClosed = season.status === "agreed";
   const nightsOpen = season.status === "locked";
+  const cancelled = season.status === "cancelled";
   const sessions = db
     .select()
     .from(seasonSessions)
@@ -76,6 +77,7 @@ export default async function SeasonDetailPage({
           {" · "}
           {season.location || community.location || "Pitch TBD"}
         </p>
+        {cancelled && <p className="mt-2 text-sm text-clay">This season was cancelled.</p>}
         <p className="mt-1 text-sm text-cream/50">
           {season.regularPriceCents > 0
             ? `Contract ${formatMoney(season.regularPriceCents, community.currency)}${
@@ -280,6 +282,28 @@ export default async function SeasonDetailPage({
             ))}
           </ul>
         </section>
+      )}
+
+      {admin && !cancelled && (
+        <Card>
+          <h3 className="font-display text-lg">Cancel</h3>
+          <p className="mt-1 text-sm text-ink/60">
+            {votingOpen || agreementClosed
+              ? "Removes this agreement from the club. Nights will not be created."
+              : "Cancels this season and hides its nights from the event list. Members will be notified."}
+          </p>
+          <form
+            className="mt-4"
+            action={async () => {
+              "use server";
+              await cancelSeason(season.id);
+            }}
+          >
+            <SubmitButton variant="danger">
+              {votingOpen || agreementClosed ? "Cancel this agreement" : "Cancel this season"}
+            </SubmitButton>
+          </form>
+        </Card>
       )}
     </div>
   );

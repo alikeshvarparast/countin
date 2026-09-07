@@ -69,7 +69,7 @@ export default async function WeeklyEventPage({
     admin && event.paymentMode === "postpay" && event.totalCostCents == null && event.status !== "cancelled" && event.status !== "polling",
   );
   const canBook = Boolean(admin && ["open", "ready_to_book"].includes(event.status));
-  const canCancel = canBook;
+  const canCancel = Boolean(admin && event.status !== "cancelled");
   const suggestions = poll
     ? db
         .select()

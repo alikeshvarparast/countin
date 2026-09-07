@@ -40,13 +40,17 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
               ? "voting"
               : s.status === "agreed"
                 ? "agreement closed"
-                : `${s.timeLocal}${s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}`;
+                : s.status === "cancelled"
+                  ? "cancelled"
+                  : `${s.timeLocal}${s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}`;
           const summary =
             s.status === "signup"
               ? "Contract vote — nights not created yet"
               : s.status === "agreed"
                 ? "Agreement closed — waiting for nights"
-                : `${s.startDate} → ${s.endDate} · ${days}`;
+                : s.status === "cancelled"
+                  ? "Cancelled — hidden from the event list"
+                  : `${s.startDate} → ${s.endDate} · ${days}`;
           return (
             <Link key={s.id} href={`/app/c/${slug}/seasons/${s.id}`}>
               <Card className="hover:border-lime/40">
