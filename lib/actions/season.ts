@@ -113,7 +113,7 @@ export async function createSeason(formData: FormData) {
       communityId: community.id,
       type: "new_season",
       title: `Contract season · ${name}`,
-      body: `Say whether you want a contract place. Nights open after enough people agree and an admin ends voting, or when the deadline arrives.`,
+      body: `Say whether you want a long-term contract place. Nights stay off the event list until an admin closes this agreement and then creates the season nights.`,
       href: communityPath(community.slug, `/seasons/${seasonId}`),
     },
   );
@@ -179,35 +179,40 @@ function ensureSeasonSessions(season: typeof seasons.$inferSelect) {
   return db.select().from(seasonSessions).where(eq(seasonSessions.seasonId, season.id)).all();
 }
 
-async function openLockedSeason(season: typeof seasons.$inferSelect, signups: { userId: string }[]) {
+function writeContractsFromAgrees(seasonId: string) {
   const t = now();
-  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  for (const signup of agreeSignups(seasonId)) {
+    if (hasContract(seasonId, signup.userId)) continue;
+    db.insert(contracts)
+      .values({
+        id: createId(),
+        seasonId,
+        userId: signup.userId,
+        prepaid: true,
+        createdAt: t,
+      })
+      .run();
+  }
+}
+
+function slotContractsOnFutureNights(season: typeof seasons.$inferSelect) {
+  const t = now();
   const sessions = ensureSeasonSessions(season);
   const future = sessions.filter((session) => session.startsAt >= t);
-  for (const signup of signups) {
-    if (!hasContract(season.id, signup.userId)) {
-      db.insert(contracts)
-        .values({
-          id: createId(),
-          seasonId: season.id,
-          userId: signup.userId,
-          prepaid: true,
-          createdAt: t,
-        })
-        .run();
-    }
+  const holders = db.select().from(contracts).where(eq(contracts.seasonId, season.id)).all();
+  for (const holder of holders) {
     for (const session of future) {
       const existing = db
         .select()
         .from(sessionSlots)
-        .where(and(eq(sessionSlots.sessionId, session.id), eq(sessionSlots.userId, signup.userId)))
+        .where(and(eq(sessionSlots.sessionId, session.id), eq(sessionSlots.userId, holder.userId)))
         .get();
       if (existing) continue;
       db.insert(sessionSlots)
         .values({
           id: createId(),
           sessionId: session.id,
-          userId: signup.userId,
+          userId: holder.userId,
           kind: "contract",
           status: "contract_present",
           createdAt: t,
@@ -216,31 +221,7 @@ async function openLockedSeason(season: typeof seasons.$inferSelect, signups: { 
         .run();
     }
   }
-  db.update(seasons).set({ status: "locked" }).where(eq(seasons.id, season.id)).run();
-  if (community) {
-    await notifyMany(
-      listApprovedMembers(community.id).map((m) => m.userId),
-      {
-        communityId: community.id,
-        type: "season_opened",
-        title: `${season.name} nights are open`,
-        body: `The contract list is set. Each night is now its own event — guests and occasionals ask for a specific date.`,
-        href: communityPath(community.slug, `/seasons/${season.id}`),
-      },
-    );
-  }
-  return db.select().from(seasons).where(eq(seasons.id, season.id)).get();
-}
-
-export async function lockSeasonIfDue(seasonId: string, opts?: { force?: boolean }) {
-  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
-  if (!season || season.status !== "signup") return season;
-  const signups = agreeSignups(seasonId);
-  const enough = signups.length >= season.minPlayers;
-  const deadlineHit = Boolean(season.signupClosesAt && now() >= season.signupClosesAt);
-  if (!enough) return season;
-  if (!opts?.force && !deadlineHit) return season;
-  return openLockedSeason(season, signups);
+  return sessions;
 }
 
 export async function closeSeasonSignup(seasonId: string) {
@@ -248,10 +229,11 @@ export async function closeSeasonSignup(seasonId: string) {
   const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
   if (!season) return { error: "Season not found." };
   requireAdmin(season.communityId, user.id);
-  const opened = await lockSeasonIfDue(seasonId, { force: true });
-  if (!opened || opened.status !== "locked") {
-    return { error: `Need at least ${season.minPlayers} people on the contract first.` };
-  }
+  if (season.status !== "signup") return { error: "The agreement is already closed." };
+
+  writeContractsFromAgrees(seasonId);
+  db.update(seasons).set({ status: "agreed" }).where(eq(seasons.id, seasonId)).run();
+
   audit({
     communityId: season.communityId,
     actorId: user.id,
@@ -261,6 +243,59 @@ export async function closeSeasonSignup(seasonId: string) {
   });
   const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
   if (community) {
+    const agreeCount = db
+      .select()
+      .from(contracts)
+      .where(eq(contracts.seasonId, seasonId))
+      .all().length;
+    await notifyMany(
+      listApprovedMembers(community.id).map((m) => m.userId),
+      {
+        communityId: community.id,
+        type: "season_agreed",
+        title: `Agreement closed · ${season.name}`,
+        body: `${agreeCount} ${agreeCount === 1 ? "person is" : "people are"} on this season's contract. Nights stay off the event list until an admin creates them.`,
+        href: communityPath(community.slug, `/seasons/${seasonId}`),
+      },
+    );
+    revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
+    revalidatePath(communityPath(community.slug, "/seasons"));
+    revalidatePath(communityPath(community.slug));
+  }
+  return { ok: true };
+}
+
+export async function createSeasonNights(seasonId: string) {
+  const user = await requireUser();
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  if (season.status === "signup") return { error: "Close the agreement first." };
+  if (season.status === "locked") return { error: "Nights are already created." };
+  if (season.status !== "agreed") return { error: "This season is not ready for nights." };
+
+  slotContractsOnFutureNights(season);
+  db.update(seasons).set({ status: "locked" }).where(eq(seasons.id, seasonId)).run();
+
+  audit({
+    communityId: season.communityId,
+    actorId: user.id,
+    action: "season.create_nights",
+    entityType: "season",
+    entityId: seasonId,
+  });
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) {
+    await notifyMany(
+      listApprovedMembers(community.id).map((m) => m.userId),
+      {
+        communityId: community.id,
+        type: "season_opened",
+        title: `${season.name} nights are open`,
+        body: `Each night is now its own event. People who agreed are contract members; everyone else is occasional.`,
+        href: communityPath(community.slug, `/seasons/${season.id}`),
+      },
+    );
     revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
     revalidatePath(communityPath(community.slug, "/seasons"));
     revalidatePath(communityPath(community.slug));
@@ -270,7 +305,7 @@ export async function closeSeasonSignup(seasonId: string) {
 
 export async function setSeasonIntent(seasonId: string, intent: "agree" | "decline") {
   const user = await requireUser();
-  const season = (await lockSeasonIfDue(seasonId)) ?? db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
   if (!season) return { error: "Season not found." };
   requireMember(season.communityId, user.id);
   if (season.status !== "signup") return { error: "The agreement window has closed." };
@@ -316,6 +351,9 @@ export async function addContract(formData: FormData) {
   const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
   if (!season) return { error: "Season not found." };
   requireAdmin(season.communityId, user.id);
+  if (season.status === "signup") {
+    return { error: "Close the agreement before adding someone to this season's contract." };
+  }
 
   const target = db.select().from(users).where(eq(users.email, email)).get();
   if (!target) return { error: "No account with that email." };
@@ -508,7 +546,7 @@ export async function applyOccasional(sessionId: string) {
   requireMember(session.communityId, user.id);
   const seasonRow = db.select().from(seasons).where(eq(seasons.id, session.seasonId)).get();
   if (!seasonRow || seasonRow.status !== "locked") {
-    return { error: "This season is still on the contract vote. Wait until the nights open." };
+    return { error: "This season's nights are not open yet." };
   }
   if (hasContract(session.seasonId, user.id)) {
     return { error: "Contract players are already on the list." };

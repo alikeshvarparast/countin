@@ -5,7 +5,6 @@ import { notifyMany } from "@/lib/notify";
 import { listAdmins, listApprovedMembers } from "@/lib/access";
 import { communities } from "@/lib/db/schema";
 import { now } from "@/lib/id";
-import { lockSeasonIfDue } from "@/lib/actions/season";
 import { eventWindowEnd, hasClockTime } from "@/lib/utils";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
@@ -96,7 +95,22 @@ export async function sendDeadlineReminders() {
   }
 
   for (const season of db.select().from(seasons).all()) {
-    await lockSeasonIfDue(season.id);
+    if (season.status !== "signup" || !season.signupClosesAt) continue;
+    if (season.signupClosesAt <= t || season.signupClosesAt > windowEnd) continue;
+    const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+    if (!community) continue;
+    await remindOnce(season.id, "season_signup_deadline", listApprovedMembers(community.id).map((m) => m.userId), {
+      communityId: community.id,
+      title: `Agreement deadline soon · ${season.name}`,
+      body: `Say whether you want a contract place. Nights stay off the event list until an admin closes this vote.`,
+      href: `/app/c/${community.slug}/seasons/${season.id}`,
+    });
+    await remindOnce(season.id, "season_signup_close_admin", listAdmins(community.id).map((a) => a.userId), {
+      communityId: community.id,
+      title: `Close the agreement · ${season.name}`,
+      body: `The deadline is soon. Close the vote when ready, then create the nights.`,
+      href: `/app/c/${community.slug}/seasons/${season.id}`,
+    });
   }
 }
 

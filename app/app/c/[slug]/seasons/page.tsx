@@ -35,21 +35,26 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
         {rows.length === 0 && <Card>No seasons yet.</Card>}
         {rows.map((s) => {
           const days = (JSON.parse(s.weekdays) as number[]).map((d) => WEEKDAY_LABELS[d].slice(0, 3)).join(", ");
+          const badge =
+            s.status === "signup"
+              ? "voting"
+              : s.status === "agreed"
+                ? "agreement closed"
+                : `${s.timeLocal}${s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}`;
+          const summary =
+            s.status === "signup"
+              ? "Contract vote — nights not created yet"
+              : s.status === "agreed"
+                ? "Agreement closed — waiting for nights"
+                : `${s.startDate} → ${s.endDate} · ${days}`;
           return (
             <Link key={s.id} href={`/app/c/${slug}/seasons/${s.id}`}>
               <Card className="hover:border-lime/40">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">{s.name}</h3>
-                  <Badge>
-                    {s.status === "signup" ? "voting" : s.timeLocal}
-                    {s.status !== "signup" && s.durationMinutes ? ` · ${formatDuration(s.durationMinutes)}` : ""}
-                  </Badge>
+                  <Badge>{badge}</Badge>
                 </div>
-                <p className="mt-1 text-sm text-cream/50">
-                  {s.status === "signup"
-                    ? "Contract vote — nights not created yet"
-                    : `${s.startDate} → ${s.endDate} · ${days}`}
-                </p>
+                <p className="mt-1 text-sm text-cream/50">{summary}</p>
               </Card>
             </Link>
           );

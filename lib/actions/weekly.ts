@@ -575,7 +575,7 @@ export async function addEventGuest(formData: FormData) {
     requireActiveMember(row.communityId, user.id);
     const season = db.select().from(seasons).where(eq(seasons.id, row.seasonId)).get();
     if (!season || season.status !== "locked") {
-      return { error: "Guests can be added after the contract nights open." };
+      return { error: "Guests can be added after this season's nights are created." };
     }
     const hostSlot = db
       .select()

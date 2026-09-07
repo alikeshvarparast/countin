@@ -65,8 +65,9 @@ export function EventCard({
           </div>
         </div>
         <p className="mt-1 text-sm text-ink/55">
-          {formatEventTimeLine(startsAt, timeZone, hasTime, durationMinutes)}
-          {location ? ` · ${location}` : ""}
+          {startsAt
+            ? `${formatEventTimeLine(startsAt, timeZone, hasTime, durationMinutes)}${location ? ` · ${location}` : ""}`
+            : location || ""}
         </p>
         {meta && <p className="mt-1 text-xs text-ink/45">{meta}</p>}
         {requests ? <p className="mt-1 text-xs text-clay">{requests} waiting for approval</p> : null}

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { addContract, closeSeasonSignup, lockSeasonIfDue, setSeasonIntent } from "@/lib/actions/season";
+import { addContract, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
 import { SubmitButton } from "@/components/submit-button";
 import { SeasonRatesForm } from "@/components/season-rates-form";
 import { Badge, Card, Field, Input } from "@/components/ui";
@@ -20,7 +20,7 @@ export default async function SeasonDetailPage({
   const { slug, id } = await params;
   const community = getCommunityBySlug(slug);
   if (!community) notFound();
-  const season = (await lockSeasonIfDue(id)) ?? db.select().from(seasons).where(eq(seasons.id, id)).get();
+  const season = db.select().from(seasons).where(eq(seasons.id, id)).get();
   if (!season || season.communityId !== community.id) notFound();
   const session = await auth();
   const userId = session?.user?.id;
@@ -42,8 +42,9 @@ export default async function SeasonDetailPage({
   const outRows = signupRows.filter((r) => r.signup.intent === "decline");
   const mySignup = userId ? signupRows.find((r) => r.signup.userId === userId) : undefined;
   const myContract = userId ? contractRows.some((r) => r.contract.userId === userId) : false;
-  const enough = inRows.length >= season.minPlayers;
   const deadlinePassed = Boolean(season.signupClosesAt && Date.now() >= season.signupClosesAt);
+  const votingOpen = season.status === "signup";
+  const agreementClosed = season.status === "agreed";
   const nightsOpen = season.status === "locked";
   const sessions = db
     .select()
@@ -86,17 +87,21 @@ export default async function SeasonDetailPage({
         </p>
       </div>
 
-      {season.status === "signup" && (
+      {votingOpen && (
         <Card>
           <h3 className="font-display text-lg">Contract agreement</h3>
           <p className="mt-1 text-sm text-ink/60">
-            Say whether you want a contract place. Nights are not created yet. They open when at least{" "}
-            {season.minPlayers} {season.minPlayers === 1 ? "person agrees" : "people agree"} and an admin ends voting
-            {season.signupClosesAt ? `, or when the deadline (${formatWhen(season.signupClosesAt, community.timezone)}) arrives` : ""}.
+            Say whether you want a long-term contract place on this season. Nothing appears on the event list yet.
+            After an admin closes this poll, the people who agreed become this season&apos;s contract members.
+            Everyone else is occasional when the nights are created.
+            {season.signupClosesAt
+              ? ` Please reply by ${formatWhen(season.signupClosesAt, community.timezone)}.`
+              : ""}
           </p>
           <p className="mt-2 text-sm">
-            {inRows.length} of {season.minPlayers} needed
-            {deadlinePassed && !enough ? " · Deadline passed, still waiting for enough people" : ""}
+            {inRows.length} agreed
+            {season.minPlayers ? ` · target ${season.minPlayers}` : ""}
+            {deadlinePassed ? " · Deadline passed; voting stays open until an admin closes it" : ""}
           </p>
           {!myContract && (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -151,13 +156,33 @@ export default async function SeasonDetailPage({
                 await closeSeasonSignup(season.id);
               }}
             >
-              <SubmitButton disabled={!enough}>End voting and open the nights</SubmitButton>
-              {!enough && (
-                <p className="mt-2 text-sm text-ink/50">
-                  Need {season.minPlayers - inRows.length} more{" "}
-                  {season.minPlayers - inRows.length === 1 ? "agreement" : "agreements"}.
-                </p>
-              )}
+              <SubmitButton>Close the agreement</SubmitButton>
+              <p className="mt-2 text-sm text-ink/50">
+                This locks the contract list for this season. Nights still will not appear until you create them.
+              </p>
+            </form>
+          )}
+        </Card>
+      )}
+
+      {agreementClosed && (
+        <Card>
+          <h3 className="font-display text-lg">Agreement closed</h3>
+          <p className="mt-1 text-sm text-ink/60">
+            The people who agreed are contract members of this season. Nights are still not on the event list.
+            {admin ? " Create the nights when you are ready." : " An admin will create the nights next."}
+          </p>
+          {userId && myContract && <p className="mt-3 text-sm">You are a contract member of this season.</p>}
+          {userId && !myContract && <p className="mt-3 text-sm">You are occasional on this season.</p>}
+          {admin && (
+            <form
+              className="mt-5"
+              action={async () => {
+                "use server";
+                await createSeasonNights(season.id);
+              }}
+            >
+              <SubmitButton>Create the season nights</SubmitButton>
             </form>
           )}
         </Card>
@@ -178,7 +203,7 @@ export default async function SeasonDetailPage({
         </Card>
       )}
 
-      {nightsOpen && admin && (
+      {(agreementClosed || nightsOpen) && admin && (
         <Card>
           <h3 className="font-display text-lg">Add contract player</h3>
           <form
@@ -202,7 +227,7 @@ export default async function SeasonDetailPage({
         </Card>
       )}
 
-      {nightsOpen && (
+      {(agreementClosed || nightsOpen) && (
         <Card>
           <h3 className="font-display text-lg">Contracts</h3>
           <ul className="mt-3 space-y-2">

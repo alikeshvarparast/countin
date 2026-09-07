@@ -65,15 +65,16 @@ export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLoc
           ))}
         </div>
       </fieldset>
-      <Field label="Minimum players">
+      <Field label="Target players">
         <Input name="minPlayers" type="number" min={2} defaultValue={10} />
       </Field>
       <Field label="Contract agreement deadline">
         <Input name="signupClosesAt" type="datetime-local" required />
       </Field>
       <p className="text-sm text-ink/50">
-        Members first say whether they take the contract. Nights are created only after enough people agree and an
-        admin ends voting, or when this deadline arrives. After that, guests and occasionals join a specific night.
+        Members first say whether they take a long-term contract. Nothing appears on the event list yet. After you
+        close the agreement, you create the nights for the people who agreed. Everyone else is occasional on those
+        nights. Each season has its own contract list from its own vote.
       </p>
       {error && <p className="text-sm text-clay">{error}</p>}
       <SubmitButton>Create season</SubmitButton>

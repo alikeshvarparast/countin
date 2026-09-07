@@ -6,7 +6,6 @@ import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access"
 import { EventCard, SectionTitle } from "@/components/event-card";
 import { EventHomeCard } from "@/components/event-home-card";
 import { PollCard } from "@/components/poll-card";
-import { lockSeasonIfDue } from "@/lib/actions/season";
 import { db } from "@/lib/db";
 import {
   clubPollOptions,
@@ -16,6 +15,7 @@ import {
   pollOptions,
   polls,
   rsvps,
+  contracts,
   seasonSessions,
   seasonSignups,
   seasons,
@@ -72,10 +72,6 @@ export default async function CommunityOverviewPage({
     return (eventWindowEnd(e) ?? e.startsAt) < now;
   });
 
-  const seasonRowsRaw = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
-  for (const row of seasonRowsRaw) {
-    if (row.status === "signup") await lockSeasonIfDue(row.id);
-  }
   const seasonRows = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
   const sessions = db
     .select()
@@ -91,7 +87,9 @@ export default async function CommunityOverviewPage({
   const upcomingSessions = sessions.filter((s) => openSeasonIds.has(s.seasonId) && sessionEnd(s) >= now);
   const pastSessions = sessions.filter((s) => openSeasonIds.has(s.seasonId) && sessionEnd(s) < now).slice(0, 8);
   const votingSeasons = seasonRows.filter((s) => s.status === "signup");
+  const agreedSeasons = seasonRows.filter((s) => s.status === "agreed");
   const signupRows = db.select().from(seasonSignups).all();
+  const contractRows = db.select().from(contracts).all();
 
   const eventPolls = events
     .filter((e) => e.status === "polling")
@@ -222,7 +220,7 @@ export default async function CommunityOverviewPage({
         </section>
       )}
 
-      {votingSeasons.length > 0 && (
+      {(votingSeasons.length > 0 || agreedSeasons.length > 0) && (
         <section>
           <SectionTitle>Contract agreement</SectionTitle>
           <div className="space-y-3">
@@ -234,8 +232,21 @@ export default async function CommunityOverviewPage({
                   href={`/app/c/${slug}/seasons/${s.id}`}
                   title={s.name}
                   location={s.location || community.location}
-                  status="signup"
-                  meta={`${inCount} of ${s.minPlayers} agreed · nights open after voting ends`}
+                  status="voting"
+                  meta={`${inCount} agreed · nights stay off the event list until the vote closes`}
+                />
+              );
+            })}
+            {agreedSeasons.map((s) => {
+              const onContract = contractRows.filter((r) => r.seasonId === s.id).length;
+              return (
+                <EventCard
+                  key={s.id}
+                  href={`/app/c/${slug}/seasons/${s.id}`}
+                  title={s.name}
+                  location={s.location || community.location}
+                  status="agreement closed"
+                  meta={`${onContract} on this season's contract · nights not created yet`}
                 />
               );
             })}
