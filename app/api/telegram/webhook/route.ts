@@ -24,7 +24,7 @@ function findUserForStart(token: string, username?: string, telegramUserId?: num
     const byToken = db.select().from(users).where(eq(users.telegramLinkToken, token)).get();
     if (byToken) return byToken;
   }
-  const keys = [username, telegramUserId != null ? String(telegramUserId) : ""]
+  const keys = [username ?? "", telegramUserId != null ? String(telegramUserId) : ""]
     .map((value) => value.replace(/^@/, "").trim().toLowerCase())
     .filter((value) => value.length >= 3);
   for (const key of keys) {

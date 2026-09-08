@@ -1,0 +1,10 @@
+services:
+  countin:
+    build: .
+    container_name: countin
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8095:3000"
+    env_file: .env
+    volumes:
+      - ./data:/app/data

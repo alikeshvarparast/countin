@@ -1,0 +1,7 @@
+[Unit]
+Description=CountIn poll GitHub for new commits
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/docker/countin/scripts/rebuild-from-github.sh

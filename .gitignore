@@ -11,3 +11,4 @@ data
 next-env.d.ts
 public/uploads/**
 !public/uploads/.gitkeep
+.env.webhook
