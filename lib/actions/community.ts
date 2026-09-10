@@ -10,6 +10,7 @@ import { communities, memberships, users } from "@/lib/db/schema";
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageUpload } from "@/lib/uploads";
 import { notify, notifyMany } from "@/lib/notify";
+import { telegramDeepLink, resolveBotUsername } from "@/lib/telegram";
 import { CURRENCIES, TIMEZONES, slugify } from "@/lib/utils";
 
 export async function createCommunity(formData: FormData) {
@@ -569,12 +570,19 @@ export async function updateProfilePhoto(formData: FormData) {
 
 export async function regenerateTelegramLink() {
   const user = await requireUser();
+  const token = createId();
   db.update(users)
-    .set({ telegramLinkToken: createId(), telegramChatId: null })
+    .set({ telegramLinkToken: token, telegramChatId: null })
     .where(eq(users.id, user.id))
     .run();
+  await resolveBotUsername();
   revalidatePath("/app/profile");
-  return { ok: true };
+  revalidatePath("/app", "layout");
+  const href = telegramDeepLink(token);
+  if (!href) {
+    return { error: "The Telegram bot username is not configured on the server yet." };
+  }
+  return { ok: true as const, href };
 }
 
 export async function requireCommunityMember(slug: string) {

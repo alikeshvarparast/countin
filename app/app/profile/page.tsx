@@ -3,16 +3,16 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getClubMembership, hintedMemberClub } from "@/lib/access";
-import { regenerateTelegramLink } from "@/lib/actions/community";
 import { ClubNav } from "@/components/club-nav";
 import { ProfileForm } from "@/components/profile-form";
 import { PushSettings } from "@/components/push-settings";
-import { SubmitButton } from "@/components/submit-button";
+import { TelegramConnect } from "@/components/telegram-connect";
 import { Card } from "@/components/ui";
 import { APP_NAME, CLUB_COOKIE, LEGACY_CLUB_COOKIE } from "@/lib/brand";
 import { countUnreadChat } from "@/lib/chat";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { createId } from "@/lib/id";
 import { userHasPushSubscription } from "@/lib/push";
 import { resolveBotUsername, telegramBotUsername, telegramDeepLink } from "@/lib/telegram";
 
@@ -22,7 +22,12 @@ export default async function ProfilePage() {
   const user = db.select().from(users).where(eq(users.id, session.user.id)).get();
   if (!user) return null;
   const bot = (await resolveBotUsername()) || telegramBotUsername();
-  const link = user.telegramLinkToken ? telegramDeepLink(user.telegramLinkToken) : null;
+  if (!user.telegramLinkToken) {
+    const token = createId();
+    db.update(users).set({ telegramLinkToken: token }).where(eq(users.id, user.id)).run();
+    user.telegramLinkToken = token;
+  }
+  const link = telegramDeepLink(user.telegramLinkToken);
   const jar = await cookies();
   const hintedRaw = jar.get(CLUB_COOKIE)?.value ?? jar.get(LEGACY_CLUB_COOKIE)?.value;
   const hinted = hintedRaw ? decodeURIComponent(hintedRaw) : undefined;
@@ -57,31 +62,7 @@ export default async function ProfilePage() {
       </Card>
       <Card className="mt-6">
         <h2 className="font-display text-lg">Telegram bot</h2>
-        {user.telegramChatId ? (
-          <p className="mt-2 text-sm text-cream/70">Linked. DMs will arrive from the {APP_NAME} bot.</p>
-        ) : (
-          <div className="mt-2 space-y-3 text-sm text-cream/70">
-            <p>Messages are not linked yet. Telegram will not deliver until you start the bot.</p>
-            {link ? (
-              <a href={link} className="inline-block text-lime" target="_blank" rel="noreferrer">
-                Open @{bot || "bot"} and tap Start
-              </a>
-            ) : (
-              <p>
-                Set <code>TELEGRAM_BOT_USERNAME</code> in the environment to generate a start link. You can still use the
-                in-app inbox.
-              </p>
-            )}
-            <form
-              action={async () => {
-                "use server";
-                await regenerateTelegramLink();
-              }}
-            >
-              <SubmitButton variant="ghost">New start link</SubmitButton>
-            </form>
-          </div>
-        )}
+        <TelegramConnect linked={Boolean(user.telegramChatId)} href={link} bot={bot} />
       </Card>
     </main>
   );
