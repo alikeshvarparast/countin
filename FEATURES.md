@@ -1,5 +1,7 @@
 # CountIn — how the app works
 
+PDF: [FEATURES.pdf](FEATURES.pdf)
+
 CountIn is for recurring football groups. One person organizes. Everyone else RSVPs, shares the pitch cost, and gets told when something changes.
 
 Live site: [https://countin.sspi.trade](https://countin.sspi.trade)
