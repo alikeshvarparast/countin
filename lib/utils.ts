@@ -59,6 +59,21 @@ export function formatWhen(ms: number | null | undefined, timeZone?: string) {
   }).format(new Date(ms));
 }
 
+export function formatRelative(ms: number | null | undefined) {
+  if (!ms) return "";
+  const delta = Math.max(0, Date.now() - ms);
+  const minutes = Math.floor(delta / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(ms));
+}
+
 export function fieldBookedLabel(status: string) {
   switch (status) {
     case "booked":
@@ -216,6 +231,11 @@ export function pendingRequestLabel(guestPending: number, occasionalPending = 0)
     parts.push(`${occasionalPending} occasional request${occasionalPending === 1 ? "" : "s"}`);
   }
   return parts.join(" · ");
+}
+
+/** Contract players count as going until they ask for a replacement. */
+export function sessionSlotIsGoing(status: string) {
+  return status === "contract_present" || status === "replacement_filled" || status === "occasional_approved";
 }
 
 export const WEEKDAY_LABELS = [

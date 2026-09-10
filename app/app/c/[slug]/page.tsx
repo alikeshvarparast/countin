@@ -25,7 +25,7 @@ import {
   users,
   pollSuggestions,
 } from "@/lib/db/schema";
-import { eventWindowEnd, formatWhen, pendingRequestLabel } from "@/lib/utils";
+import { eventWindowEnd, formatWhen, pendingRequestLabel, sessionSlotIsGoing } from "@/lib/utils";
 import { listVoteHistory } from "@/lib/votes";
 import { goingHeadcount } from "@/lib/ledger";
 import { notFound } from "next/navigation";
@@ -68,6 +68,7 @@ export default async function CommunityOverviewPage({
     return (eventWindowEnd(e) ?? e.startsAt) >= now;
   });
   const pastEvents = events.filter((e) => {
+    if (e.status === "cancelled") return false;
     if (!e.startsAt) return false;
     return (eventWindowEnd(e) ?? e.startsAt) < now;
   });
@@ -340,7 +341,7 @@ export default async function CommunityOverviewPage({
             const occasionalPending = slotRows.filter((r) => r.sessionId === s.id && r.status === "occasional_pending").length;
             const guestPending = guestRows.filter((g) => g.sessionId === s.id && g.status === "pending").length;
             const approvedGuestCount = guestRows.filter((g) => g.sessionId === s.id && g.status === "approved").length;
-            const onSheet = slotRows.filter((r) => r.sessionId === s.id && r.status !== "occasional_pending").length;
+            const onSheet = slotRows.filter((r) => r.sessionId === s.id && sessionSlotIsGoing(r.status)).length;
             const requests = pendingRequestLabel(guestPending, occasionalPending);
             return (
               <EventCard

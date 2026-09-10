@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getCommunityBySlug, isAdmin } from "@/lib/access";
+import { getCommunityBySlug, isAdmin, listApprovedMembers } from "@/lib/access";
 import { addContract, cancelSeason, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
 import { SubmitButton } from "@/components/submit-button";
 import { SeasonRatesForm } from "@/components/season-rates-form";
@@ -22,6 +22,7 @@ export default async function SeasonDetailPage({
   if (!community) notFound();
   const season = db.select().from(seasons).where(eq(seasons.id, id)).get();
   if (!season || season.communityId !== community.id) notFound();
+  if (season.status === "cancelled") redirect(`/app/c/${slug}`);
   const session = await auth();
   const userId = session?.user?.id;
   const admin = userId ? isAdmin(community.id, userId) : false;
@@ -42,11 +43,22 @@ export default async function SeasonDetailPage({
   const outRows = signupRows.filter((r) => r.signup.intent === "decline");
   const mySignup = userId ? signupRows.find((r) => r.signup.userId === userId) : undefined;
   const myContract = userId ? contractRows.some((r) => r.contract.userId === userId) : false;
+  const occasionalRows = listApprovedMembers(community.id).filter(
+    (member) => !contractRows.some((row) => row.contract.userId === member.userId),
+  );
   const deadlinePassed = Boolean(season.signupClosesAt && Date.now() >= season.signupClosesAt);
   const votingOpen = season.status === "signup";
   const agreementClosed = season.status === "agreed";
   const nightsOpen = season.status === "locked";
   const cancelled = season.status === "cancelled";
+  const ratesLabel =
+    season.regularPriceCents > 0
+      ? `Contract ${formatMoney(season.regularPriceCents, community.currency)}${
+          season.occasionalPriceCents
+            ? ` · occasional ${formatMoney(season.occasionalPriceCents, community.currency)}`
+            : " · occasional rate later"
+        }`
+      : "Session rates not set yet";
   const sessions = db
     .select()
     .from(seasonSessions)
@@ -61,10 +73,14 @@ export default async function SeasonDetailPage({
     .where(eq(seasonSessions.seasonId, season.id))
     .all();
   const pendingWaitlist = waitlistRows
-    .filter((r) => r.slot.status === "occasional_pending")
+    .filter((r) => r.session.status !== "cancelled" && r.slot.status === "occasional_pending")
     .sort((a, b) => a.slot.createdAt - b.slot.createdAt);
   const waitlistHistory = waitlistRows
-    .filter((r) => r.slot.status === "occasional_approved" || r.slot.status === "occasional_rejected")
+    .filter(
+      (r) =>
+        r.session.status !== "cancelled" &&
+        (r.slot.status === "occasional_approved" || r.slot.status === "occasional_rejected"),
+    )
     .sort((a, b) => a.slot.createdAt - b.slot.createdAt);
 
   return (
@@ -78,15 +94,7 @@ export default async function SeasonDetailPage({
           {season.location || community.location || "Pitch TBD"}
         </p>
         {cancelled && <p className="mt-2 text-sm text-clay">This season was cancelled.</p>}
-        <p className="mt-1 text-sm text-cream/50">
-          {season.regularPriceCents > 0
-            ? `Contract ${formatMoney(season.regularPriceCents, community.currency)}${
-                season.occasionalPriceCents
-                  ? ` · occasional ${formatMoney(season.occasionalPriceCents, community.currency)}`
-                  : " · occasional rate later"
-              }`
-            : "Session rates not set yet"}
-        </p>
+        <p className="mt-1 text-sm text-cream/50">{ratesLabel}</p>
       </div>
 
       {votingOpen && (
@@ -241,6 +249,15 @@ export default async function SeasonDetailPage({
               </li>
             ))}
           </ul>
+          <h4 className="mt-5 text-xs uppercase tracking-[0.18em] text-secondary">
+            Occasional · {occasionalRows.length}
+          </h4>
+          <ul className="mt-2 space-y-1 text-sm">
+            {occasionalRows.length === 0 && <li className="text-ink/45">Everyone is on contract.</li>}
+            {occasionalRows.map((member) => (
+              <li key={member.userId}>{member.name}</li>
+            ))}
+          </ul>
         </Card>
       )}
 
@@ -271,8 +288,10 @@ export default async function SeasonDetailPage({
           <h3 className="font-display text-lg">Nights</h3>
           <p className="mt-1 text-sm text-ink/55">Each date is its own event. Guests and occasionals ask for a specific night.</p>
           <ul className="mt-3 space-y-2">
-            {sessions.length === 0 && <li className="text-sm text-ink/45">No nights yet.</li>}
-            {sessions.map((s) => (
+            {sessions.filter((s) => s.status !== "cancelled").length === 0 && <li className="text-sm text-ink/45">No nights yet.</li>}
+            {sessions
+              .filter((s) => s.status !== "cancelled")
+              .map((s) => (
               <li key={s.id}>
                 <Link href={`/app/c/${slug}/sessions/${s.id}`} className="flex items-center justify-between rounded-xl border border-line px-4 py-3 hover:border-lime/40">
                   <span>{formatEventWhen(s.startsAt, community.timezone, true, season.durationMinutes)}</span>

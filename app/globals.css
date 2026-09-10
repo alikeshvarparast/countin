@@ -31,7 +31,6 @@ html,
 body {
   background: var(--color-muted);
   color: var(--color-ink);
-  overflow-x: clip;
 }
 
 body {

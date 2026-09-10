@@ -19,7 +19,8 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
     .from(seasons)
     .where(eq(seasons.communityId, community.id))
     .orderBy(desc(seasons.createdAt))
-    .all();
+    .all()
+    .filter((s) => s.status !== "cancelled");
 
   return (
     <div>

@@ -6,6 +6,7 @@ import { MoreHorizontal, X } from "lucide-react";
 import { voteClubPoll } from "@/lib/actions/club";
 import { votePoll } from "@/lib/actions/weekly";
 import { acceptPollSuggestion, addPollOption, adminDeleteVote, adminSetVote, deletePoll, suggestPollOption } from "@/lib/actions/polls";
+import { ActionMenu } from "@/components/action-menu";
 import { SubmitButton } from "@/components/submit-button";
 import { cn, formatWhen } from "@/lib/utils";
 
@@ -88,38 +89,33 @@ export function PollCard({
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
-          {menu && (
-            <>
-              <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close menu" onClick={() => setMenu(false)} />
-              <div className="absolute right-0 z-30 mt-1 w-52 rounded-2xl border border-line bg-card py-1 text-sm shadow-[0_12px_32px_rgba(63,58,52,0.12)]">
+          <ActionMenu open={menu} onClose={() => setMenu(false)}>
                 {canSeeDetails && (
-                  <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => { setPanel("details"); setMenu(false); }}>
+                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setPanel("details"); setMenu(false); }}>
                     See details
                   </button>
                 )}
                 {canVote && myOption && (
-                  <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => { setChanging(true); setMenu(false); }}>
+                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setChanging(true); setMenu(false); }}>
                     Change the vote
                   </button>
                 )}
                 {canVote && !staff && (
-                  <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => { setPanel("suggest"); setMenu(false); }}>
+                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setPanel("suggest"); setMenu(false); }}>
                     Suggest an option
                   </button>
                 )}
                 {staff && (
-                  <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => { setPanel("admin"); setMenu(false); }}>
+                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setPanel("admin"); setMenu(false); }}>
                     Edit
                   </button>
                 )}
                 {staff && (
-                  <button type="button" className="block w-full px-3 py-2 text-left text-clay hover:bg-muted" onClick={() => { setPanel("delete"); setMenu(false); }}>
+                  <button type="button" className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted" onClick={() => { setPanel("delete"); setMenu(false); }}>
                     Delete
                   </button>
                 )}
-              </div>
-            </>
-          )}
+          </ActionMenu>
         </div>
       </div>
       <ul className="mt-4 space-y-2">
@@ -310,7 +306,7 @@ export function PollCard({
                 <input type="hidden" name="kind" value={kind} />
                 <input type="hidden" name="pollId" value={pollId} />
                 <input type="hidden" name="userId" value={v.userId} />
-                <select name="optionId" defaultValue={v.optionId} className="h-9 rounded-lg border border-line bg-card px-2">
+                <select name="optionId" defaultValue={v.optionId} className="h-9 min-w-0 max-w-full flex-1 rounded-lg border border-line bg-card px-2">
                   {options.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.label}

@@ -19,7 +19,8 @@ export default async function EventsListPage({ params }: { params: Promise<{ slu
     .from(weeklyEvents)
     .where(eq(weeklyEvents.communityId, community.id))
     .orderBy(desc(weeklyEvents.createdAt))
-    .all();
+    .all()
+    .filter((e) => e.status !== "cancelled");
 
   return (
     <div>

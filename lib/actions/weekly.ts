@@ -2,6 +2,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/auth";
 import {
   getCommunityBySlug,
@@ -29,7 +30,7 @@ import { createId, now } from "@/lib/id";
 import { goingHeadcount, notifyCollector, syncWeeklyShares, attendanceShares, splitCents } from "@/lib/ledger";
 import { currentEventVotes, logVote } from "@/lib/votes";
 import { notify, notifyMany } from "@/lib/notify";
-import { eventStartFromParts, localInputToMs, parseDurationMinutes } from "@/lib/utils";
+import { eventStartFromParts, localInputToMs, parseDurationMinutes, sessionSlotIsGoing } from "@/lib/utils";
 
 function goingCount(eventId: string) {
   return goingHeadcount(eventId);
@@ -391,12 +392,12 @@ export async function cancelWeeklyEvent(eventId: string) {
       type: "event_cancelled",
       title: `Cancelled · ${event.title}`,
       body: `This session for ${community.name} was cancelled.`,
-      href: `/app/c/${community.slug}/events/${event.id}`,
+      href: `/app/c/${community.slug}`,
     },
   );
   revalidatePath(`/app/c/${community.slug}`);
-  revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
-  return { ok: true };
+  revalidatePath(`/app/c/${community.slug}/events`);
+  redirect(`/app/c/${community.slug}`);
 }
 
 export async function postWeeklyCost(formData: FormData) {
@@ -583,7 +584,7 @@ export async function addEventGuest(formData: FormData) {
       .from(sessionSlots)
       .where(and(eq(sessionSlots.sessionId, sessionId), eq(sessionSlots.userId, user.id)))
       .get();
-    if (!hostSlot || hostSlot.status === "occasional_pending") {
+    if (!hostSlot || !sessionSlotIsGoing(hostSlot.status)) {
       return { error: "You need a place on this night before adding a guest." };
     }
     db.insert(eventGuests)

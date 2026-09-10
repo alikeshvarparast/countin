@@ -1,7 +1,8 @@
 "use server";
 
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/auth";
 import {
   getCommunityBySlug,
@@ -12,6 +13,7 @@ import {
   requireMember,
 } from "@/lib/access";
 import { audit } from "@/lib/audit";
+import { postClubChat } from "@/lib/chat";
 import { db } from "@/lib/db";
 import {
   communities,
@@ -27,7 +29,7 @@ import {
 import { createId, now } from "@/lib/id";
 import { notify, notifyMany } from "@/lib/notify";
 import { eachSeasonDate, zonedDateTimeToUtcMs } from "@/lib/timezone";
-import { localInputToMs, parseDurationMinutes } from "@/lib/utils";
+import { localInputToMs, parseDurationMinutes, formatEventWhen } from "@/lib/utils";
 
 function communityPath(slug: string, rest = "") {
   return `/app/c/${slug}${rest}`;
@@ -333,14 +335,14 @@ export async function cancelSeason(seasonId: string) {
         body: wasAgreement
           ? `The contract agreement for ${season.name} was cancelled.`
           : `${season.name} and its nights were cancelled.`,
-        href: communityPath(community.slug, `/seasons/${seasonId}`),
+        href: communityPath(community.slug),
       },
     );
     revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
     revalidatePath(communityPath(community.slug, "/seasons"));
     revalidatePath(communityPath(community.slug));
   }
-  return { ok: true };
+  redirect(community ? communityPath(community.slug) : "/app");
 }
 
 export async function cancelSeasonSession(sessionId: string) {
@@ -372,14 +374,14 @@ export async function cancelSeasonSession(sessionId: string) {
         type: "session_cancelled",
         title: `Cancelled night · ${season.name}`,
         body: `One ${season.name} night was cancelled.`,
-        href: communityPath(community.slug, `/sessions/${sessionId}`),
+        href: communityPath(community.slug),
       },
     );
     revalidatePath(communityPath(community.slug, `/sessions/${sessionId}`));
     revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
     revalidatePath(communityPath(community.slug));
   }
-  return { ok: true };
+  redirect(community ? communityPath(community.slug) : "/app");
 }
 
 export async function setSeasonIntent(seasonId: string, intent: "agree" | "decline") {
@@ -520,10 +522,80 @@ export async function addContract(formData: FormData) {
   return { ok: true };
 }
 
+function transferRemainingContract(
+  seasonId: string,
+  fromUserId: string,
+  toUserId: string,
+  fromStartsAt: number,
+) {
+  const existing = db
+    .select()
+    .from(contracts)
+    .where(and(eq(contracts.seasonId, seasonId), eq(contracts.userId, fromUserId)))
+    .get();
+  if (!existing) return { error: "That contract is no longer available." };
+  if (hasContract(seasonId, toUserId)) return { error: "You already have a contract place." };
+
+  const t = now();
+  db.delete(contracts).where(eq(contracts.id, existing.id)).run();
+  db.insert(contracts)
+    .values({
+      id: createId(),
+      seasonId,
+      userId: toUserId,
+      prepaid: existing.prepaid,
+      createdAt: t,
+    })
+    .run();
+
+  const laterNights = db
+    .select()
+    .from(seasonSessions)
+    .where(and(eq(seasonSessions.seasonId, seasonId), gt(seasonSessions.startsAt, fromStartsAt)))
+    .all()
+    .filter((row) => row.status !== "cancelled");
+
+  for (const night of laterNights) {
+    const fromSlot = db
+      .select()
+      .from(sessionSlots)
+      .where(and(eq(sessionSlots.sessionId, night.id), eq(sessionSlots.userId, fromUserId)))
+      .get();
+    if (fromSlot) db.delete(sessionSlots).where(eq(sessionSlots.id, fromSlot.id)).run();
+
+    const toSlot = db
+      .select()
+      .from(sessionSlots)
+      .where(and(eq(sessionSlots.sessionId, night.id), eq(sessionSlots.userId, toUserId)))
+      .get();
+    if (toSlot) {
+      db.update(sessionSlots)
+        .set({ kind: "contract", status: "contract_present", invitedById: fromUserId, updatedAt: t })
+        .where(eq(sessionSlots.id, toSlot.id))
+        .run();
+    } else {
+      db.insert(sessionSlots)
+        .values({
+          id: createId(),
+          sessionId: night.id,
+          userId: toUserId,
+          kind: "contract",
+          status: "contract_present",
+          invitedById: fromUserId,
+          createdAt: t,
+          updatedAt: t,
+        })
+        .run();
+    }
+  }
+  return { ok: true as const };
+}
+
 export async function markContractAbsent(formData: FormData) {
   const user = await requireUser();
   const sessionId = String(formData.get("sessionId") ?? "");
   const inviteType = String(formData.get("inviteType") ?? "none");
+  const inviteUserId = String(formData.get("inviteUserId") ?? "").trim();
   const inviteEmail = String(formData.get("inviteEmail") ?? "").toLowerCase().trim();
   const session = db.select().from(seasonSessions).where(eq(seasonSessions.id, sessionId)).get();
   if (!session) return { error: "Session not found." };
@@ -554,14 +626,20 @@ export async function markContractAbsent(formData: FormData) {
 
   if (inviteType === "open" || inviteType === "private") {
     let toUserId: string | null = null;
+    let toUserName = "";
     if (inviteType === "private") {
-      const target = db.select().from(users).where(eq(users.email, inviteEmail)).get();
-      if (!target) return { error: "No account with that email to invite." };
+      const target = inviteUserId
+        ? db.select().from(users).where(eq(users.id, inviteUserId)).get()
+        : inviteEmail
+          ? db.select().from(users).where(eq(users.email, inviteEmail)).get()
+          : undefined;
+      if (!target) return { error: "Pick a member to invite." };
       if (hasContract(session.seasonId, target.id)) {
         return { error: "Replacements must be outside the contract list." };
       }
       requireMember(community.id, target.id);
       toUserId = target.id;
+      toUserName = target.name;
     }
     const invitationId = createId();
     db.insert(invitations)
@@ -576,25 +654,37 @@ export async function markContractAbsent(formData: FormData) {
       })
       .run();
 
+    const nightLabel = formatEventWhen(session.startsAt, community.timezone, true, season.durationMinutes);
     if (inviteType === "private" && toUserId) {
       await notify({
         userId: toUserId,
         communityId: community.id,
         type: "private_invitation",
-        title: `Private invite · ${season.name}`,
-        body: `${user.name} invited you to take their slot at the regular rate. Your payment goes to them.`,
+        title: `Private exchange · ${season.name}`,
+        body: `${user.name} asked you to take ${nightLabel}. You can cover that night only, or take over their remaining contract.`,
         href,
       });
+      postClubChat(
+        community.id,
+        user.id,
+        `Exchange request (private): asked ${toUserName} to take ${nightLabel} for ${season.name}. They can cover that night or take over the contract.`,
+      );
     } else {
       await notifyMany(nonContractMemberIds(community.id, season.id), {
         communityId: community.id,
         type: "open_invitation",
-        title: `Open slot · ${season.name}`,
-        body: `${user.name} opened a replacement invite at the regular rate. Claim it and pay them, not a premium.`,
+        title: `Open exchange · ${season.name}`,
+        body: `${user.name} is looking for a replacement for ${nightLabel}. Cover that night only, or take over their remaining contract.`,
         href,
       });
+      postClubChat(
+        community.id,
+        user.id,
+        `Exchange request: looking for a replacement for ${nightLabel} (${season.name}). Occasional players can take that night only or take over the contract.`,
+      );
     }
   } else {
+    const nightLabel = formatEventWhen(session.startsAt, community.timezone, true, season.durationMinutes);
     await notifyMany(nonContractMemberIds(community.id, season.id), {
       communityId: community.id,
       type: "slot_opened",
@@ -602,6 +692,11 @@ export async function markContractAbsent(formData: FormData) {
       body: `A contract player is out with no invite. Apply on the waitlist — this fill is 50% more and the absentee is not credited.`,
       href,
     });
+    postClubChat(
+      community.id,
+      user.id,
+      `I'm out for ${nightLabel} (${season.name}) and opened the slot on the waitlist.`,
+    );
   }
 
   await notifyMany(
@@ -616,6 +711,8 @@ export async function markContractAbsent(formData: FormData) {
   );
 
   revalidatePath(href);
+  revalidatePath(communityPath(community.slug, "/chat"));
+  revalidatePath(communityPath(community.slug), "layout");
   return { ok: true };
 }
 
@@ -758,8 +855,13 @@ export async function decideWaitlist(formData: FormData) {
   return { ok: true };
 }
 
-export async function claimInvitation(invitationId: string) {
+export async function claimInvitation(formData: FormData) {
   const user = await requireUser();
+  const invitationId = String(formData.get("invitationId") ?? "");
+  const mode = String(formData.get("mode") ?? "night");
+  if (mode !== "night" && mode !== "contract") {
+    return { error: "Choose this night only, or take over the contract." };
+  }
   const invitation = db.select().from(invitations).where(eq(invitations.id, invitationId)).get();
   if (!invitation || invitation.status !== "open") return { error: "Invitation is not available." };
   const session = db.select().from(seasonSessions).where(eq(seasonSessions.id, invitation.sessionId)).get();
@@ -778,6 +880,21 @@ export async function claimInvitation(invitationId: string) {
     .get();
   if (existing) return { error: "You already have a place on this session." };
 
+  const community = db.select().from(communities).where(eq(communities.id, session.communityId)).get();
+  const season = db.select().from(seasons).where(eq(seasons.id, session.seasonId)).get();
+  if (!community || !season) return { error: "Season not found." };
+  if (!season.regularPriceCents) return { error: "Set the contract session rate before filling replacements." };
+
+  if (mode === "contract") {
+    const transferred = transferRemainingContract(
+      session.seasonId,
+      invitation.fromUserId,
+      user.id,
+      session.startsAt,
+    );
+    if ("error" in transferred) return transferred;
+  }
+
   const t = now();
   db.update(invitations).set({ status: "claimed" }).where(eq(invitations.id, invitationId)).run();
   db.insert(sessionSlots)
@@ -785,18 +902,13 @@ export async function claimInvitation(invitationId: string) {
       id: createId(),
       sessionId: session.id,
       userId: user.id,
-      kind: "replacement",
-      status: "replacement_filled",
+      kind: mode === "contract" ? "contract" : "replacement",
+      status: mode === "contract" ? "contract_present" : "replacement_filled",
       invitedById: invitation.fromUserId,
       createdAt: t,
       updatedAt: t,
     })
     .run();
-
-  const community = db.select().from(communities).where(eq(communities.id, session.communityId)).get();
-  const season = db.select().from(seasons).where(eq(seasons.id, session.seasonId)).get();
-  if (!community || !season) return { error: "Season not found." };
-  if (!season.regularPriceCents) return { error: "Set the contract session rate before filling replacements." };
 
   db.insert(ledgerEntries)
     .values({
@@ -815,21 +927,40 @@ export async function claimInvitation(invitationId: string) {
   audit({
     communityId: community.id,
     actorId: user.id,
-    action: "session.claim_invite",
+    action: mode === "contract" ? "session.claim_contract" : "session.claim_invite",
     entityType: "invitation",
     entityId: invitation.id,
   });
+
+  const nightLabel = formatEventWhen(session.startsAt, community.timezone, true, season.durationMinutes);
+  const fromUser = db.select().from(users).where(eq(users.id, invitation.fromUserId)).get();
+  const fromName = fromUser?.name ?? "the contract player";
 
   await notify({
     userId: invitation.fromUserId,
     communityId: community.id,
     type: "invitation_claimed",
-    title: `Replacement found · ${season.name}`,
-    body: `${user.name} took your slot at the regular rate. That payment is credited to you.`,
+    title: mode === "contract" ? `Contract taken over · ${season.name}` : `Replacement found · ${season.name}`,
+    body:
+      mode === "contract"
+        ? `${user.name} took over your remaining contract, starting with ${nightLabel}. That night is credited to you.`
+        : `${user.name} took ${nightLabel} at the regular rate. That payment is credited to you.`,
     href: communityPath(community.slug, "/ledger"),
   });
 
+  postClubChat(
+    community.id,
+    user.id,
+    mode === "contract"
+      ? `I took over ${fromName}'s contract on ${season.name}, starting ${nightLabel}.`
+      : `I took ${fromName}'s place for ${nightLabel} (${season.name}) this night only.`,
+  );
+
   revalidatePath(communityPath(community.slug, `/sessions/${session.id}`));
+  revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
   revalidatePath(communityPath(community.slug, "/ledger"));
+  revalidatePath(communityPath(community.slug, "/chat"));
+  revalidatePath(communityPath(community.slug));
+  revalidatePath(communityPath(community.slug), "layout");
   return { ok: true };
 }

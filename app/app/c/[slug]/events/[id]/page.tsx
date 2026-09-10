@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
 import { PollCard } from "@/components/poll-card";
@@ -33,6 +33,7 @@ export default async function WeeklyEventPage({
   if (!community) notFound();
   const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, id)).get();
   if (!event || event.communityId !== community.id) notFound();
+  if (event.status === "cancelled") redirect(`/app/c/${slug}`);
   const session = await auth();
   const userId = session?.user?.id;
   const admin = userId ? isAdmin(community.id, userId) : false;

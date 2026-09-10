@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
+import { ActionMenu } from "@/components/action-menu";
 
 export function PollVoters({ voters }: { voters: { name: string; vote: string }[] }) {
   const [open, setOpen] = useState(false);
@@ -16,10 +17,8 @@ export function PollVoters({ voters }: { voters: { name: string; vote: string }[
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      {open && (
-        <>
-          <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close voters" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-30 mt-1 w-64 rounded-2xl border border-line bg-card p-3 shadow-[0_12px_32px_rgba(63,58,52,0.12)]">
+      <ActionMenu open={open} onClose={() => setOpen(false)} className="sm:w-64">
+            <div className="px-3 py-2">
             <p className="text-[11px] uppercase tracking-[0.18em] text-secondary">Votes</p>
             {voters.length === 0 ? (
               <p className="mt-2 text-sm text-ink/50">No votes yet.</p>
@@ -33,9 +32,8 @@ export function PollVoters({ voters }: { voters: { name: string; vote: string }[
                 ))}
               </ul>
             )}
-          </div>
-        </>
-      )}
+            </div>
+      </ActionMenu>
     </div>
   );
 }

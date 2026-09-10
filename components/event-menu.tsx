@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import { cancelWeeklyEvent, confirmFieldBooked, lockPollTime, postWeeklyCost, removeEventGuest } from "@/lib/actions/weekly";
+import { ActionMenu } from "@/components/action-menu";
 import { GuestForm } from "@/components/guest-form";
 import { PresenceVote } from "@/components/presence-vote";
 import { Field, Input, Modal, Textarea } from "@/components/ui";
@@ -80,12 +81,11 @@ export function EventMenu({
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      {menu && (
-        <div className="absolute right-0 z-30 mt-1 w-52 rounded-2xl border border-line bg-card py-1 text-sm shadow-[0_12px_32px_rgba(63,58,52,0.12)]">
+      <ActionMenu open={menu} onClose={() => setMenu(false)}>
           {showDetails && (
             <button
               type="button"
-              className="block w-full px-3 py-2 text-left hover:bg-muted"
+              className="block w-full px-3 py-2.5 text-left hover:bg-muted"
               onClick={() => {
                 setMenu(false);
                 router.push(href);
@@ -95,37 +95,36 @@ export function EventMenu({
             </button>
           )}
           {canVote && (
-            <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => open("presence")}>
+            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("presence")}>
               Change presence
             </button>
           )}
           {showGuests && (
-            <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => open("guest")}>
+            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("guest")}>
               {canAddGuest ? "Add guest" : "Guests"}
             </button>
           )}
           {isAdmin && (
-            <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => open("costs")}>
+            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("costs")}>
               Costs
             </button>
           )}
           {canLock && (
-            <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => open("lock")}>
+            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("lock")}>
               Lock a time
             </button>
           )}
           {canBook && (
-            <button type="button" className="block w-full px-3 py-2 text-left hover:bg-muted" onClick={() => open("book")}>
+            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("book")}>
               Mark field booked
             </button>
           )}
           {canCancel && (
-            <button type="button" className="block w-full px-3 py-2 text-left text-clay hover:bg-muted" onClick={() => open("cancel")}>
+            <button type="button" className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted" onClick={() => open("cancel")}>
               Cancel event
             </button>
           )}
-        </div>
-      )}
+      </ActionMenu>
 
       {panel === "presence" && canVote && (
         <Modal eyebrow="Presence" title="Are you going?" onClose={() => setPanel(null)}>

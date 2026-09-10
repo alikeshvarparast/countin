@@ -1,7 +1,21 @@
 import { and, count, eq, gt, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { chatMessages, chatReads } from "@/lib/db/schema";
-import { now } from "@/lib/id";
+import { createId, now } from "@/lib/id";
+
+export function postClubChat(communityId: string, userId: string, body: string) {
+  const text = body.trim();
+  if (!text) return;
+  db.insert(chatMessages)
+    .values({
+      id: createId(),
+      communityId,
+      userId,
+      body: text.slice(0, 2000),
+      createdAt: now(),
+    })
+    .run();
+}
 
 export function getChatLastReadAt(communityId: string, userId: string) {
   return (

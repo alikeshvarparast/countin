@@ -6,7 +6,7 @@ import {
   users,
 } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { publicAppUrl, sendTelegramMessage } from "@/lib/telegram";
 import { sendWhatsAppMessage, whatsappEnabled } from "@/lib/whatsapp";
 
 export type NotifyInput = {
@@ -166,7 +166,7 @@ async function deliverOne(deliveryId: string) {
 
 function absoluteHref(href: string) {
   if (href.startsWith("http")) return href;
-  const base = process.env.AUTH_URL || "http://localhost:3000";
+  const base = publicAppUrl() || "http://localhost:3000";
   return `${base}${href}`;
 }
 

@@ -2,11 +2,17 @@
 
 import { useState } from "react";
 import { markContractAbsent } from "@/lib/actions/season";
-import { Field, Input } from "@/components/ui";
+import { Field, Select } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 
-export function AbsenceForm({ sessionId }: { sessionId: string }) {
-  const [inviteType, setInviteType] = useState("none");
+export function AbsenceForm({
+  sessionId,
+  members,
+}: {
+  sessionId: string;
+  members: { id: string; name: string }[];
+}) {
+  const [inviteType, setInviteType] = useState("open");
   const [error, setError] = useState<string | null>(null);
   return (
     <form
@@ -17,25 +23,39 @@ export function AbsenceForm({ sessionId }: { sessionId: string }) {
       }}
     >
       <input type="hidden" name="sessionId" value={sessionId} />
-      <Field label="If you are out">
-        <select
-          name="inviteType"
-          value={inviteType}
-          onChange={(e) => setInviteType(e.target.value)}
-          className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-ink"
-        >
-          <option value="none">Open the slot (you get no credit)</option>
-          <option value="open">Open invitation at regular rate (payment to you)</option>
-          <option value="private">Private invitation at regular rate (payment to you)</option>
-        </select>
+      <Field label="Exchange request">
+        <Select name="inviteType" value={inviteType} onChange={(e) => setInviteType(e.target.value)}>
+          <option value="open">Ask everyone</option>
+          <option value="private" disabled={members.length === 0}>
+            Ask one member
+          </option>
+          <option value="none">Open the slot on the waitlist (no credit)</option>
+        </Select>
       </Field>
       {inviteType === "private" && (
-        <Field label="Invitee email">
-          <Input name="inviteEmail" type="email" required />
+        <Field label="Member">
+          <Select name="inviteUserId" required defaultValue="">
+            <option value="" disabled>
+              Choose who to ask
+            </option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </Select>
         </Field>
       )}
+      <p className="text-sm text-ink/55">
+        {inviteType === "none"
+          ? "Occasional players can apply on the waitlist. You are not credited."
+          : "They can cover this night only, or take over your remaining contract. Chat, inbox, and Telegram are notified."}
+      </p>
+      {members.length === 0 && inviteType !== "none" && (
+        <p className="text-sm text-clay">There are no occasional members to invite right now.</p>
+      )}
       {error && <p className="text-sm text-clay">{error}</p>}
-      <SubmitButton variant="ghost">Mark myself absent</SubmitButton>
+      <SubmitButton variant="ghost">Send exchange request</SubmitButton>
     </form>
   );
 }

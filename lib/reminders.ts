@@ -15,6 +15,7 @@ export async function sendDeadlineReminders() {
 
   const openEvents = db.select().from(weeklyEvents).all();
   for (const event of openEvents) {
+    if (event.status === "cancelled") continue;
     const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
     if (!community) continue;
 

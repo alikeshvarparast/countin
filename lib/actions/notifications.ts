@@ -14,8 +14,8 @@ export async function markNotificationRead(id: string) {
   if (!row.readAt) {
     db.update(notifications).set({ readAt: now() }).where(eq(notifications.id, id)).run();
   }
+  revalidatePath("/app", "layout");
   revalidatePath("/app/notifications");
-  revalidatePath("/app");
   return { ok: true };
 }
 
@@ -28,7 +28,7 @@ export async function markAllNotificationsRead() {
       db.update(notifications).set({ readAt: t }).where(eq(notifications.id, row.id)).run();
     }
   }
+  revalidatePath("/app", "layout");
   revalidatePath("/app/notifications");
-  revalidatePath("/app");
   return { ok: true };
 }

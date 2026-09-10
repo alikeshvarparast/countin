@@ -1,12 +1,48 @@
 import { desc, eq } from "drizzle-orm";
+import {
+  Ban,
+  Bell,
+  CalendarDays,
+  Clock,
+  KeyRound,
+  Mail,
+  UserPlus,
+  Users,
+  Vote,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { auth } from "@/auth";
-import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notifications";
+import { markAllNotificationsRead } from "@/lib/actions/notifications";
+import { Avatar } from "@/components/avatar";
+import { NotificationRow } from "@/components/notification-row";
 import { SubmitButton } from "@/components/submit-button";
-import { Card } from "@/components/ui";
 import { db } from "@/lib/db";
-import { notifications } from "@/lib/db/schema";
-import { formatWhen } from "@/lib/utils";
-import Link from "next/link";
+import { communities, notifications } from "@/lib/db/schema";
+import { cn, formatRelative } from "@/lib/utils";
+
+function iconForType(type: string): LucideIcon {
+  if (type.includes("poll")) return Vote;
+  if (type.includes("cancel")) return Ban;
+  if (type.includes("guest") || type.includes("join")) return UserPlus;
+  if (type.includes("membership")) return Users;
+  if (type.includes("cost") || type.includes("payment") || type.includes("ledger")) return Wallet;
+  if (type.includes("waitlist") || type.includes("deadline") || type.includes("rsvp") || type.includes("remind")) {
+    return Clock;
+  }
+  if (type.includes("invite") || type.includes("invitation")) return Mail;
+  if (type.includes("password")) return KeyRound;
+  if (
+    type.includes("event") ||
+    type.includes("season") ||
+    type.includes("session") ||
+    type.includes("field") ||
+    type.includes("contract")
+  ) {
+    return CalendarDays;
+  }
+  return Bell;
+}
 
 export async function InboxList() {
   const session = await auth();
@@ -18,50 +54,67 @@ export async function InboxList() {
     .orderBy(desc(notifications.createdAt))
     .all()
     .slice(0, 80);
+  const clubs = db.select().from(communities).all();
+  const clubOf = (id: string | null) => clubs.find((c) => c.id === id);
+  const unreadCount = rows.filter((n) => !n.readAt).length;
 
   return (
     <div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="font-display text-2xl">Inbox</h1>
-        <form
-          action={async () => {
-            "use server";
-            await markAllNotificationsRead();
-          }}
-        >
-          <SubmitButton variant="ghost">Mark all read</SubmitButton>
-        </form>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="font-display text-xl">Notifications</h1>
+        {unreadCount > 0 && (
+          <form
+            action={async () => {
+              "use server";
+              await markAllNotificationsRead();
+            }}
+          >
+            <SubmitButton variant="ghost" size="sm" className="h-8 border-0 px-2 text-xs text-ink/55 hover:bg-muted">
+              Mark all as read
+            </SubmitButton>
+          </form>
+        )}
       </div>
-      <p className="mt-2 text-sm text-ink/50">Same alerts go to Telegram once your bot chat is linked.</p>
-      <div className="mt-8 space-y-3">
-        {rows.length === 0 && <Card>No notifications yet.</Card>}
-        {rows.map((n) => (
-          <Card key={n.id} className={n.readAt ? "opacity-60" : ""}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-primary">{n.type.replaceAll("_", " ")}</p>
-                <h2 className="mt-1 font-medium">{n.title}</h2>
-                <p className="mt-1 text-sm text-ink/70">{n.body}</p>
-                <p className="mt-2 text-xs text-ink/40">{formatWhen(n.createdAt)}</p>
-                {n.href && (
-                  <Link href={n.href} className="mt-2 inline-block text-sm text-primary">
-                    Open →
-                  </Link>
-                )}
-              </div>
-              {!n.readAt && (
-                <form
-                  action={async () => {
-                    "use server";
-                    await markNotificationRead(n.id);
-                  }}
-                >
-                  <SubmitButton variant="ghost">Read</SubmitButton>
-                </form>
-              )}
-            </div>
-          </Card>
-        ))}
+      <div className="mt-4 overflow-hidden rounded-2xl border border-line bg-card">
+        {rows.length === 0 && <p className="px-4 py-6 text-sm text-ink/45">No notifications yet.</p>}
+        <ul className="divide-y divide-line">
+          {rows.map((n) => {
+            const club = n.communityId ? clubOf(n.communityId) : undefined;
+            const Icon = iconForType(n.type);
+            const unread = !n.readAt;
+            return (
+              <li key={n.id}>
+                <NotificationRow id={n.id} href={n.href} unread={unread}>
+                  <span className="relative mt-0.5 shrink-0">
+                    {club ? (
+                      <Avatar src={club.imageUrl} name={club.name} size="sm" />
+                    ) : (
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-pitch-3 text-ink">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                    )}
+                    {club && (
+                      <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-card ring-2 ring-card">
+                        <Icon className="h-2.5 w-2.5" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={cn("block text-sm leading-snug text-ink", unread ? "font-semibold" : "font-medium")}>
+                      {n.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs leading-snug text-ink/55">{n.body}</span>
+                    <span className="mt-0.5 block text-[11px] text-ink/40">
+                      {formatRelative(n.createdAt)}
+                      {club ? ` · ${club.name}` : ""}
+                    </span>
+                  </span>
+                  {unread && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />}
+                </NotificationRow>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </div>
   );

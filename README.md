@@ -2,6 +2,8 @@
 
 CountIn is a web app for running recurring group sessions: polls, RSVPs, waitlists, prepaid seasons, and a shared ledger. Alerts go to an in-app inbox and a Telegram bot.
 
+**[Feature guide](FEATURES.md)** — clubs, pickup events, seasons, exchanges, chat, notifications, and the ledger.
+
 ## Run locally
 
 ```bash

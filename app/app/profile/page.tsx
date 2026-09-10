@@ -12,14 +12,14 @@ import { APP_NAME, CLUB_COOKIE, LEGACY_CLUB_COOKIE } from "@/lib/brand";
 import { countUnreadChat } from "@/lib/chat";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
-import { telegramBotUsername, telegramDeepLink } from "@/lib/telegram";
+import { resolveBotUsername, telegramBotUsername, telegramDeepLink } from "@/lib/telegram";
 
 export default async function ProfilePage() {
   const session = await auth();
   if (!session?.user?.id) return null;
   const user = db.select().from(users).where(eq(users.id, session.user.id)).get();
   if (!user) return null;
-  const bot = telegramBotUsername();
+  const bot = (await resolveBotUsername()) || telegramBotUsername();
   const link = user.telegramLinkToken ? telegramDeepLink(user.telegramLinkToken) : null;
   const jar = await cookies();
   const hintedRaw = jar.get(CLUB_COOKIE)?.value ?? jar.get(LEGACY_CLUB_COOKIE)?.value;

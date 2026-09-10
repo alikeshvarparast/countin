@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import { setMembershipRole, setMembershipStatus } from "@/lib/actions/community";
+import { ActionMenu } from "@/components/action-menu";
 import { SubmitButton } from "@/components/submit-button";
 
 export function MemberManage({
@@ -14,8 +16,10 @@ export function MemberManage({
   role: string;
   status: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const nextRole = role === "admin" ? "member" : "admin";
 
   return (
     <div className="relative">
@@ -25,76 +29,68 @@ export function MemberManage({
         aria-label="Member actions"
         onClick={() => {
           setOpen((v) => !v);
-          setConfirmDelete(false);
+          setConfirmRemove(false);
         }}
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      {open && (
-        <>
-          <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close menu" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-30 mt-1 w-56 rounded-2xl border border-line bg-card p-2 text-sm shadow-[0_12px_32px_rgba(63,58,52,0.12)]">
-            <form
-              className="flex items-center gap-2 rounded-xl px-1 py-1"
-              action={async (formData) => {
-                await setMembershipRole(formData);
-                setOpen(false);
-              }}
-            >
-              <input type="hidden" name="membershipId" value={membershipId} />
-              <label className="sr-only" htmlFor={`role-${membershipId}`}>
-                Role
-              </label>
-              <select
-                id={`role-${membershipId}`}
-                name="role"
-                defaultValue={role === "admin" ? "admin" : "member"}
-                className="h-9 min-w-0 flex-1 rounded-full border border-line bg-card px-3 text-xs text-ink"
-              >
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-              <SubmitButton variant="ghost" className="h-9 px-3 text-xs">
-                Save
-              </SubmitButton>
-            </form>
-            <form
-              action={async (formData) => {
-                await setMembershipStatus(formData);
-                setOpen(false);
-              }}
-            >
-              <input type="hidden" name="membershipId" value={membershipId} />
-              <input type="hidden" name="status" value={status === "suspended" ? "approved" : "suspended"} />
-              <button type="submit" className="block w-full rounded-xl px-3 py-2 text-left hover:bg-muted">
-                {status === "suspended" ? "Restore" : "Suspend"}
-              </button>
-            </form>
-            {confirmDelete ? (
-              <form
-                action={async (formData) => {
-                  await setMembershipStatus(formData);
-                  setOpen(false);
-                }}
-              >
-                <input type="hidden" name="membershipId" value={membershipId} />
-                <input type="hidden" name="status" value="removed" />
-                <SubmitButton variant="danger" className="mt-1 h-9 w-full px-3 text-xs">
-                  Delete forever
-                </SubmitButton>
-              </form>
-            ) : (
-              <button
-                type="button"
-                className="block w-full rounded-xl px-3 py-2 text-left text-clay hover:bg-muted"
-                onClick={() => setConfirmDelete(true)}
-              >
-                Delete
-              </button>
-            )}
-          </div>
-        </>
-      )}
+      <ActionMenu
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          setConfirmRemove(false);
+        }}
+      >
+        <form
+          action={async (formData) => {
+            await setMembershipRole(formData);
+            setOpen(false);
+            router.refresh();
+          }}
+        >
+          <input type="hidden" name="membershipId" value={membershipId} />
+          <input type="hidden" name="role" value={nextRole} />
+          <button type="submit" className="block w-full px-3 py-2.5 text-left hover:bg-muted">
+            {nextRole === "admin" ? "Make admin" : "Make member"}
+          </button>
+        </form>
+        <form
+          action={async (formData) => {
+            await setMembershipStatus(formData);
+            setOpen(false);
+            router.refresh();
+          }}
+        >
+          <input type="hidden" name="membershipId" value={membershipId} />
+          <input type="hidden" name="status" value={status === "suspended" ? "approved" : "suspended"} />
+          <button type="submit" className="block w-full px-3 py-2.5 text-left hover:bg-muted">
+            {status === "suspended" ? "Restore" : "Suspend"}
+          </button>
+        </form>
+        {confirmRemove ? (
+          <form
+            action={async (formData) => {
+              await setMembershipStatus(formData);
+              setOpen(false);
+              router.refresh();
+            }}
+          >
+            <input type="hidden" name="membershipId" value={membershipId} />
+            <input type="hidden" name="status" value="removed" />
+            <SubmitButton variant="danger" className="mt-1 mx-2 mb-2 h-10 w-[calc(100%-1rem)] px-3 text-xs">
+              Confirm remove
+            </SubmitButton>
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted"
+            onClick={() => setConfirmRemove(true)}
+          >
+            Remove from club
+          </button>
+        )}
+      </ActionMenu>
     </div>
   );
 }

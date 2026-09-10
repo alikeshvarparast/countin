@@ -450,6 +450,7 @@ export async function setMembershipStatus(formData: FormData) {
     href: status === "removed" ? `/communities/${community.slug}` : `/app/c/${community.slug}`,
   });
   revalidatePath(`/app/c/${community.slug}/members`);
+  revalidatePath(`/app/c/${community.slug}`);
   return { ok: true };
 }
 
