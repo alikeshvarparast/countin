@@ -6,6 +6,7 @@ import { AddMemberButton } from "@/components/add-member-button";
 import { MemberManage } from "@/components/member-manage";
 import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
+import { ItemGrid, itemGridClass } from "@/components/page-frame";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { memberships, users } from "@/lib/db/schema";
@@ -56,7 +57,7 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
       {staff && pending.length > 0 && (
         <section>
           <h3 className="font-display text-xl">Join requests</h3>
-          <div className="mt-4 space-y-3">
+          <ItemGrid className="mt-4">
             {pending.map(({ membership, user }) => (
               <Card key={membership.id} className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -90,12 +91,12 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
                 </div>
               </Card>
             ))}
-          </div>
+          </ItemGrid>
         </section>
       )}
-      <ul className="grid gap-3">
+      <ul className={itemGridClass}>
         {squad.map(({ membership, user }) => (
-          <li key={membership.id} className="flex flex-col gap-3 rounded-2xl border border-line bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <li key={membership.id} className="flex h-full flex-col gap-3 rounded-2xl border border-line bg-card px-4 py-3 transition hover:border-primary/25 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <Avatar src={user.imageUrl} name={user.name} size="md" />
               <div className="min-w-0">

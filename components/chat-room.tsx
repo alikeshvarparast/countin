@@ -6,6 +6,7 @@ import { ChevronDown, Reply, Send, SmilePlus } from "lucide-react";
 import { markChatRead, sendChatMessage, toggleChatReaction } from "@/lib/actions/club";
 import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
+import { syncAppBadge } from "@/lib/pwa-client";
 import { cn } from "@/lib/utils";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "🔥", "⚽", "👏"];
@@ -100,7 +101,9 @@ export function ChatRoom({
         didInitialPin.current = true;
         followLatest.current = !unreadTarget();
         setAtBottom(isNearBottom(node));
-        void markChatRead(slug);
+        void markChatRead(slug).then(() => {
+          void syncAppBadge();
+        });
       });
     });
 

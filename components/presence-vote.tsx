@@ -42,7 +42,7 @@ export function PresenceVote({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1">
         {options.map((opt) => {
           const active = selected === opt.id;
           return (
@@ -52,8 +52,8 @@ export function PresenceVote({
               disabled={!canSubmit}
               onClick={() => setSelected(opt.id)}
               className={cn(
-                "rounded-full border px-3 py-1 text-sm",
-                active ? "border-primary bg-primary/15" : "border-line bg-card",
+                "rounded-xl px-3 py-2 text-sm font-medium transition",
+                active ? "bg-card text-ink shadow-sm" : "text-ink/55 hover:text-ink",
                 !canSubmit && "opacity-70",
               )}
             >

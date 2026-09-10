@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
 import { EventCard, SectionTitle } from "@/components/event-card";
 import { EventHomeCard } from "@/components/event-home-card";
+import { ItemGrid } from "@/components/page-frame";
 import { PollCard } from "@/components/poll-card";
 import { db } from "@/lib/db";
 import {
@@ -200,7 +201,7 @@ export default async function CommunityOverviewPage({
       {livePolls.length > 0 && (
         <section>
           <SectionTitle action={createLinks}>Current polls</SectionTitle>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <ItemGrid>
             {livePolls.map((poll) =>
               poll ? (
                 <PollCard
@@ -221,14 +222,14 @@ export default async function CommunityOverviewPage({
                 />
               ) : null,
             )}
-          </div>
+          </ItemGrid>
         </section>
       )}
 
       {(votingSeasons.length > 0 || agreedSeasons.length > 0) && (
         <section>
           <SectionTitle>Contract agreement</SectionTitle>
-          <div className="space-y-3">
+          <ItemGrid>
             {votingSeasons.map((s) => {
               const inCount = signupRows.filter((r) => r.seasonId === s.id && r.intent !== "decline").length;
               return (
@@ -255,7 +256,7 @@ export default async function CommunityOverviewPage({
                 />
               );
             })}
-          </div>
+          </ItemGrid>
         </section>
       )}
 
@@ -276,9 +277,9 @@ export default async function CommunityOverviewPage({
         >
           Active events
         </SectionTitle>
-        <div className="space-y-3">
+        <ItemGrid>
           {activeEvents.filter((e) => e.status !== "polling").length === 0 && upcomingSessions.length === 0 && (
-            <p className="rounded-2xl border border-dashed border-line bg-card px-4 py-8 text-center text-ink/50">
+            <p className="col-span-full rounded-2xl border border-dashed border-line bg-card px-4 py-8 text-center text-ink/50">
               Nothing on the pitch yet. Create an event to gather the squad.
             </p>
           )}
@@ -358,13 +359,13 @@ export default async function CommunityOverviewPage({
               />
             );
           })}
-        </div>
+        </ItemGrid>
       </section>
 
       {(pastEvents.length > 0 || pastSessions.length > 0) && (
         <section>
           <SectionTitle>Past events</SectionTitle>
-          <div className="space-y-3 opacity-90">
+          <ItemGrid className="opacity-90">
             {pastEvents.slice(0, 8).map((e) => (
               <EventCard
                 key={e.id}
@@ -390,7 +391,7 @@ export default async function CommunityOverviewPage({
                 durationMinutes={seasonOf(s.seasonId)?.durationMinutes}
               />
             ))}
-          </div>
+          </ItemGrid>
         </section>
       )}
     </div>

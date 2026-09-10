@@ -13,10 +13,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { auth } from "@/auth";
-import { markAllNotificationsRead } from "@/lib/actions/notifications";
 import { Avatar } from "@/components/avatar";
+import { MarkAllReadButton } from "@/components/mark-all-read-button";
 import { NotificationRow } from "@/components/notification-row";
-import { SubmitButton } from "@/components/submit-button";
 import { db } from "@/lib/db";
 import { communities, notifications } from "@/lib/db/schema";
 import { cn, formatRelative } from "@/lib/utils";
@@ -59,21 +58,10 @@ export async function InboxList() {
   const unreadCount = rows.filter((n) => !n.readAt).length;
 
   return (
-    <div>
+    <div className="mx-auto w-full max-w-3xl">
       <div className="flex items-center justify-between gap-3">
         <h1 className="font-display text-xl">Notifications</h1>
-        {unreadCount > 0 && (
-          <form
-            action={async () => {
-              "use server";
-              await markAllNotificationsRead();
-            }}
-          >
-            <SubmitButton variant="ghost" size="sm" className="h-8 border-0 px-2 text-xs text-ink/55 hover:bg-muted">
-              Mark all as read
-            </SubmitButton>
-          </form>
-        )}
+        {unreadCount > 0 && <MarkAllReadButton />}
       </div>
       <div className="mt-4 overflow-hidden rounded-2xl border border-line bg-card">
         {rows.length === 0 && <p className="px-4 py-6 text-sm text-ink/45">No notifications yet.</p>}

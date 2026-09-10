@@ -53,7 +53,7 @@ export function EventCard({
   return (
     <Link
       href={href}
-      className="flex items-center gap-4 rounded-2xl border border-line bg-card p-4 shadow-[0_8px_24px_rgba(63,58,52,0.06)] transition hover:-translate-y-0.5 hover:border-primary/30"
+      className="flex h-full items-center gap-4 rounded-2xl border border-line bg-card p-4 shadow-[0_8px_24px_rgba(63,58,52,0.06)] transition hover:-translate-y-0.5 hover:border-primary/30"
     >
       <DateTile ms={startsAt} timeZone={timeZone} />
       <div className="min-w-0 flex-1">

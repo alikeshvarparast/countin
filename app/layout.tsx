@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Outfit } from "next/font/google";
 import localFont from "next/font/local";
+import { PwaShell } from "@/components/pwa-shell";
 import { APP_NAME } from "@/lib/brand";
 import "./globals.css";
 
@@ -42,6 +43,9 @@ export const metadata: Metadata = {
     title: APP_NAME,
     statusBarStyle: "default",
   },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
   formatDetection: { telephone: false },
 };
 
@@ -55,7 +59,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${fraunces.variable} ${outfit.variable} ${bNazanin.variable}`}>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {children}
+        <PwaShell />
+      </body>
     </html>
   );
 }

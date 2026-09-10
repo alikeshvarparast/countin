@@ -37,7 +37,7 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
     .reduce((s, r) => s + r.amountCents, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-3xl space-y-6">
       <Card className="border-primary/30 bg-primary/10">
         <p className="text-xs uppercase tracking-[0.2em] text-secondary">Credit tracker</p>
         <p className="mt-2 text-sm text-ink/80">{LEDGER_DISCLAIMER}</p>

@@ -72,7 +72,7 @@ export function PollCard({
   const total = options.reduce((s, o) => s + o.votes, 0) || 1;
 
   return (
-    <div className="rounded-2xl border border-line bg-card p-5 shadow-[0_8px_24px_rgba(63,58,52,0.06)]">
+    <div className="flex h-full flex-col rounded-2xl border border-line bg-card p-5 shadow-[0_8px_24px_rgba(63,58,52,0.06)]">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.18em] text-primary">Live poll</p>

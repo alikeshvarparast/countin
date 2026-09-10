@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { markNotificationRead } from "@/lib/actions/notifications";
+import { syncAppBadge } from "@/lib/pwa-client";
 import { cn } from "@/lib/utils";
 
 export function NotificationRow({
@@ -25,7 +26,11 @@ export function NotificationRow({
         unread ? "bg-primary/12" : "bg-card hover:bg-muted/80",
       )}
       onClick={() => {
-        if (unread) void markNotificationRead(id);
+        if (unread) {
+          void markNotificationRead(id).then(() => {
+            void syncAppBadge();
+          });
+        }
         if (href) router.push(href);
       }}
     >

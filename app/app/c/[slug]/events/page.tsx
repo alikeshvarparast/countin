@@ -2,6 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
+import { ItemGrid } from "@/components/page-frame";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { weeklyEvents } from "@/lib/db/schema";
@@ -32,11 +33,11 @@ export default async function EventsListPage({ params }: { params: Promise<{ slu
           </Link>
         )}
       </div>
-      <div className="mt-6 space-y-3">
-        {events.length === 0 && <Card>No weekly events yet.</Card>}
+      <ItemGrid className="mt-6">
+        {events.length === 0 && <Card className="col-span-full">No weekly events yet.</Card>}
         {events.map((e) => (
-          <Link key={e.id} href={`/app/c/${slug}/events/${e.id}`}>
-            <Card className="flex items-center justify-between hover:border-lime/40">
+          <Link key={e.id} href={`/app/c/${slug}/events/${e.id}`} className="block h-full">
+            <Card className="flex h-full items-center justify-between transition hover:-translate-y-0.5 hover:border-primary/30">
               <div>
                 <h3 className="font-medium">{e.title}</h3>
                 <p className="text-sm text-cream/50">
@@ -47,7 +48,7 @@ export default async function EventsListPage({ params }: { params: Promise<{ slu
             </Card>
           </Link>
         ))}
-      </div>
+      </ItemGrid>
     </div>
   );
 }

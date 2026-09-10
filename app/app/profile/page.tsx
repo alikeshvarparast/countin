@@ -6,12 +6,14 @@ import { getClubMembership, hintedMemberClub } from "@/lib/access";
 import { regenerateTelegramLink } from "@/lib/actions/community";
 import { ClubNav } from "@/components/club-nav";
 import { ProfileForm } from "@/components/profile-form";
+import { PushSettings } from "@/components/push-settings";
 import { SubmitButton } from "@/components/submit-button";
 import { Card } from "@/components/ui";
 import { APP_NAME, CLUB_COOKIE, LEGACY_CLUB_COOKIE } from "@/lib/brand";
 import { countUnreadChat } from "@/lib/chat";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { userHasPushSubscription } from "@/lib/push";
 import { resolveBotUsername, telegramBotUsername, telegramDeepLink } from "@/lib/telegram";
 
 export default async function ProfilePage() {
@@ -39,6 +41,12 @@ export default async function ProfilePage() {
           whatsapp={user.whatsappPhone ?? ""}
           imageUrl={user.imageUrl}
         />
+      </Card>
+      <Card className="mt-6">
+        <h2 className="font-display text-lg">Phone notifications</h2>
+        <div className="mt-2">
+          <PushSettings enabled={userHasPushSubscription(user.id)} />
+        </div>
       </Card>
       <Card className="mt-6">
         <h2 className="font-display text-lg">Help</h2>

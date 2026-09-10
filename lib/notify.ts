@@ -6,6 +6,7 @@ import {
   users,
 } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
+import { sendPushToUser } from "@/lib/push";
 import { publicAppUrl, sendTelegramMessage } from "@/lib/telegram";
 import { sendWhatsAppMessage, whatsappEnabled } from "@/lib/whatsapp";
 
@@ -81,7 +82,21 @@ export async function notify(input: NotifyInput) {
       .run();
   }
 
+  const pushDeliveryId = createId();
+  db.insert(notificationDeliveries)
+    .values({
+      id: pushDeliveryId,
+      notificationId,
+      channel: "push",
+      status: "pending",
+      attempts: 0,
+      nextRetryAt: createdAt,
+      createdAt,
+    })
+    .run();
+
   await deliverOne(telegramDeliveryId);
+  await deliverOne(pushDeliveryId);
   return notificationId;
 }
 
@@ -129,6 +144,33 @@ async function deliverOne(deliveryId: string) {
         status: "sent",
         providerMessageId: result.messageId,
       });
+    } else {
+      markDelivery(delivery.id, {
+        status: result.retryable ? "pending" : "failed",
+        lastError: result.error,
+        retryable: result.retryable,
+      });
+    }
+    return;
+  }
+
+  if (delivery.channel === "push") {
+    const result = await sendPushToUser(user.id, {
+      title: notification.title,
+      body: notification.body,
+      href: notification.href,
+      tag: `inbox:${notification.id}`,
+    });
+    if (result.sent === 0 && result.ok) {
+      markDelivery(delivery.id, {
+        status: "skipped",
+        lastError: "No push subscription on this account.",
+        retryable: false,
+      });
+      return;
+    }
+    if (result.ok) {
+      markDelivery(delivery.id, { status: "sent" });
     } else {
       markDelivery(delivery.id, {
         status: result.retryable ? "pending" : "failed",
@@ -216,7 +258,7 @@ export async function retryPendingDeliveries(limit = 40) {
     .from(notificationDeliveries)
     .where(
       and(
-        inArray(notificationDeliveries.channel, ["telegram", "whatsapp"]),
+        inArray(notificationDeliveries.channel, ["telegram", "whatsapp", "push"]),
         or(
           eq(notificationDeliveries.status, "pending"),
           and(

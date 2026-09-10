@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { db } from "@/lib/db";
 import { contracts, eventGuests, invitations, seasonSessions, seasons, sessionSlots, users } from "@/lib/db/schema";
+import { PageFrame } from "@/components/page-frame";
 import { fieldBookedLabel, formatEventWhen, formatMoney, formatWhen, pendingRequestLabel, sessionSlotIsGoing } from "@/lib/utils";
 
 function slotLabel(kind: string, status: string) {
@@ -101,7 +102,7 @@ export default async function SessionPage({
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
-    <div className="space-y-6">
+    <PageFrame width="article" className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.18em] text-primary">{season.name}</p>
@@ -319,6 +320,6 @@ export default async function SessionPage({
           </div>
         </div>
       ))}
-    </div>
+    </PageFrame>
   );
 }

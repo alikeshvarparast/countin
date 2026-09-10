@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { searchCommunities } from "@/lib/access";
 import { AppHeader } from "@/components/header";
 import { Avatar } from "@/components/avatar";
+import { ItemGrid } from "@/components/page-frame";
 import { Input } from "@/components/ui";
 import { db } from "@/lib/db";
 import { memberships, users } from "@/lib/db/schema";
@@ -56,7 +57,7 @@ export default async function HomePage({
   return (
     <div className="min-h-screen">
       <AppHeader />
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-6 sm:pt-10">
+      <main className="mx-auto w-full px-4 pb-16 pt-6 sm:px-6 sm:pt-10 lg:px-8">
         <div className="rounded-3xl border border-line bg-card px-5 py-8 text-ink sm:px-8 sm:py-10">
           <p className="text-[11px] uppercase tracking-[0.22em] text-ink/60">Find your club</p>
           <h1 className="mt-2 max-w-xl font-display text-4xl leading-none text-ink sm:text-5xl">Search communities. Join the squad.</h1>
@@ -98,7 +99,7 @@ export default async function HomePage({
         {mine.length > 0 && !query && (
           <section className="mt-10">
             <h2 className="font-display text-2xl">Your clubs</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <ItemGrid className="mt-4">
               {mine.map((c) => (
                 <ClubCard
                   key={c.id}
@@ -109,13 +110,13 @@ export default async function HomePage({
                   badge="Member"
                 />
               ))}
-            </div>
+            </ItemGrid>
           </section>
         )}
 
         <section className="mt-10">
           <h2 className="font-display text-2xl">{query ? `Results for “${query}”` : "Public communities"}</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <ItemGrid className="mt-4">
             {(query ? clubs : rest).length === 0 && (
               <p className="col-span-full rounded-2xl border border-dashed border-line bg-card px-4 py-10 text-center text-ink/50">
                 {query
@@ -141,7 +142,7 @@ export default async function HomePage({
                 }
               />
             ))}
-          </div>
+          </ItemGrid>
         </section>
       </main>
     </div>
@@ -173,7 +174,7 @@ function ClubCard({
   return (
     <Link
       href={href}
-      className="group overflow-hidden rounded-3xl border border-line bg-card shadow-[0_10px_30px_rgba(63,58,52,0.06)] transition hover:-translate-y-0.5 hover:border-primary/35"
+      className="group flex h-full flex-col overflow-hidden rounded-3xl border border-line bg-card shadow-[0_10px_30px_rgba(63,58,52,0.06)] transition hover:-translate-y-0.5 hover:border-primary/35"
     >
       <div className="pitch-banner pitch-lines h-20" />
       <div className="-mt-8 px-5 pb-5">

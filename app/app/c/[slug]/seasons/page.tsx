@@ -2,6 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
+import { ItemGrid } from "@/components/page-frame";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { seasons } from "@/lib/db/schema";
@@ -32,8 +33,8 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
           </Link>
         )}
       </div>
-      <div className="mt-6 space-y-3">
-        {rows.length === 0 && <Card>No seasons yet.</Card>}
+      <ItemGrid className="mt-6">
+        {rows.length === 0 && <Card className="col-span-full">No seasons yet.</Card>}
         {rows.map((s) => {
           const days = (JSON.parse(s.weekdays) as number[]).map((d) => WEEKDAY_LABELS[d].slice(0, 3)).join(", ");
           const badge =
@@ -53,8 +54,8 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
                   ? "Cancelled — hidden from the event list"
                   : `${s.startDate} → ${s.endDate} · ${days}`;
           return (
-            <Link key={s.id} href={`/app/c/${slug}/seasons/${s.id}`}>
-              <Card className="hover:border-lime/40">
+            <Link key={s.id} href={`/app/c/${slug}/seasons/${s.id}`} className="block h-full">
+              <Card className="h-full transition hover:-translate-y-0.5 hover:border-primary/30">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">{s.name}</h3>
                   <Badge>{badge}</Badge>
@@ -64,7 +65,7 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
             </Link>
           );
         })}
-      </div>
+      </ItemGrid>
     </div>
   );
 }

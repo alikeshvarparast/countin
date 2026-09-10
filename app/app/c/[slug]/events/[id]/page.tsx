@@ -7,6 +7,7 @@ import { EventMenu } from "@/components/event-menu";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
 import { PresenceVote } from "@/components/presence-vote";
+import { PageFrame } from "@/components/page-frame";
 import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
 import { eventGuests, pollOptions, polls, pollSuggestions, rsvps, users, votes, weeklyEvents } from "@/lib/db/schema";
@@ -90,7 +91,7 @@ export default async function WeeklyEventPage({
     }));
 
   return (
-    <div className="space-y-6">
+    <PageFrame width="article" className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-display text-2xl break-words">{event.title}</h2>
@@ -268,6 +269,6 @@ export default async function WeeklyEventPage({
           </div>
         </div>
       )}
-    </div>
+    </PageFrame>
   );
 }

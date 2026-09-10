@@ -10,6 +10,7 @@ import { Badge, Card, Field, Input } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { db } from "@/lib/db";
 import { contracts, seasonSessions, seasonSignups, seasons, sessionSlots, users } from "@/lib/db/schema";
+import { PageFrame } from "@/components/page-frame";
 import { formatDuration, formatEventWhen, formatMoney, formatWhen, WEEKDAY_LABELS } from "@/lib/utils";
 
 export default async function SeasonDetailPage({
@@ -84,7 +85,7 @@ export default async function SeasonDetailPage({
     .sort((a, b) => a.slot.createdAt - b.slot.createdAt);
 
   return (
-    <div className="space-y-8">
+    <PageFrame width="article" className="space-y-8">
       <div>
         <h2 className="font-display text-2xl">{season.name}</h2>
         <p className="mt-1 text-sm text-ink/60">
@@ -324,6 +325,6 @@ export default async function SeasonDetailPage({
           </form>
         </Card>
       )}
-    </div>
+    </PageFrame>
   );
 }

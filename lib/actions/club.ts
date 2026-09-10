@@ -16,6 +16,8 @@ import {
 } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
 import { notifyMany } from "@/lib/notify";
+import { sendPushToUser } from "@/lib/push";
+import { countAppBadge } from "@/lib/unread";
 import { localInputToMs } from "@/lib/utils";
 import { currentClubVotes, logVote } from "@/lib/votes";
 
@@ -48,6 +50,21 @@ export async function sendChatMessage(formData: FormData) {
     .run();
 
   upsertChatRead(community.id, user.id, createdAt);
+  const preview = body.length > 120 ? `${body.slice(0, 117)}…` : body;
+  const members = listApprovedMembers(community.id);
+  await Promise.all(
+    members
+      .filter((member) => member.userId !== user.id)
+      .map((member) =>
+        sendPushToUser(member.userId, {
+          title: community.name,
+          body: `${user.name}: ${preview}`,
+          href: `/app/c/${slug}/chat`,
+          unreadCount: countAppBadge(member.userId),
+          tag: `chat:${community.id}`,
+        }),
+      ),
+  );
   revalidatePath(`/app/c/${slug}/chat`);
   revalidatePath(`/app/c/${slug}`, "layout");
   return { ok: true };
