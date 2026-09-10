@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin, listApprovedMembers } from "@/lib/access";
 import { applyOccasional, cancelSeasonSession, claimInvitation } from "@/lib/actions/season";
+import { Avatar } from "@/components/avatar";
 import { AbsenceForm } from "@/components/absence-form";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
@@ -188,8 +189,11 @@ export default async function SessionPage({
           <ul className="mt-2 space-y-2 text-sm">
             {goingSlots.length === 0 && <li className="text-ink/45">No one on the sheet yet.</li>}
             {goingSlots.map(({ slot, user }) => (
-              <li key={slot.id}>
-                {user.name} <span className="text-ink/45">· {slotLabel(slot.kind, slot.status)}</span>
+              <li key={slot.id} className="flex items-center gap-2 py-0.5">
+                <Avatar src={user.imageUrl} name={user.name} size="xs" />
+                <span className="min-w-0 truncate">
+                  {user.name} <span className="text-ink/45">· {slotLabel(slot.kind, slot.status)}</span>
+                </span>
               </li>
             ))}
           </ul>
@@ -199,8 +203,11 @@ export default async function SessionPage({
             <p className="text-xs uppercase tracking-[0.18em] text-secondary">Out · {outSlots.length}</p>
             <ul className="mt-2 space-y-2 text-sm">
               {outSlots.map(({ slot, user }) => (
-                <li key={slot.id}>
-                  {user.name} <span className="text-ink/45">· {slotLabel(slot.kind, slot.status)}</span>
+                <li key={slot.id} className="flex items-center gap-2 py-0.5">
+                  <Avatar src={user.imageUrl} name={user.name} size="xs" />
+                  <span className="min-w-0 truncate">
+                    {user.name} <span className="text-ink/45">· {slotLabel(slot.kind, slot.status)}</span>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -211,8 +218,8 @@ export default async function SessionPage({
           <ul className="mt-2 space-y-2 text-sm">
             {approvedGuests.length === 0 && <li className="text-ink/45">No guests on the list yet.</li>}
             {approvedGuests.map((g) => (
-              <li key={g.id} className="flex flex-wrap items-center justify-between gap-2">
-                <span>
+              <li key={g.id} className="flex items-center gap-2 py-0.5">
+                <span className="min-w-0 flex-1 truncate">
                   {g.label} <span className="text-ink/45">· guest of {nameOf(g.hostUserId)}</span>
                 </span>
                 {(admin || userId === g.hostUserId) && <GuestCancelButton guestId={g.id} />}

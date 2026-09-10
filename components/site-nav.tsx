@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, LogOut, Menu, Plus, Search, X } from "lucide-react";
+import { Bell, CircleHelp, LogIn, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { logout } from "@/lib/actions/session";
 import { Avatar } from "@/components/avatar";
 
@@ -43,7 +43,8 @@ export function SiteNav({
               <Plus className="h-4 w-4" />
               New club
             </Link>
-            <Link href="/app/support" className="text-ink/70 hover:text-ink">
+            <Link href="/app/support" className="flex items-center gap-1.5 text-ink/70 hover:text-ink">
+              <CircleHelp className="h-4 w-4" />
               Help
             </Link>
             <Link href={inbox} className="relative text-ink/70 hover:text-ink" aria-label="Notifications">
@@ -102,25 +103,32 @@ export function SiteNav({
       {open && (
         <div className="absolute inset-x-0 top-full z-30 border-b border-line bg-muted px-4 py-3 shadow-sm md:hidden">
           <div className="flex flex-col gap-1" onClick={() => setOpen(false)}>
-            <MobileLink href="/">Find clubs</MobileLink>
+            <MobileLink href="/" icon={Search}>
+              Find clubs
+            </MobileLink>
             {loggedIn ? (
               <>
-                <MobileLink href="/app/communities/new">New community</MobileLink>
-                <MobileLink href="/app/support">Help</MobileLink>
-                <MobileLink href={inbox}>Inbox{unread ? ` (${unread})` : ""}</MobileLink>
-                <MobileLink href="/app/profile">Profile</MobileLink>
+                <MobileLink href="/app/communities/new" icon={Plus}>
+                  New community
+                </MobileLink>
+                <MobileLink href="/app/support" icon={CircleHelp}>
+                  Help
+                </MobileLink>
                 <form action={logout}>
                   <button
-                    className="flex min-h-11 w-full items-center rounded-xl px-3 text-left text-ink"
+                    className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-ink"
                     type="submit"
                   >
+                    <LogOut className="h-4 w-4 text-ink/55" />
                     Sign out
                   </button>
                 </form>
               </>
             ) : (
               <>
-                <MobileLink href="/login">Log in</MobileLink>
+                <MobileLink href="/login" icon={LogIn}>
+                  Log in
+                </MobileLink>
                 <Link
                   href="/register"
                   className="mt-2 flex min-h-11 items-center justify-center rounded-full bg-primary px-4 font-medium text-ink"
@@ -136,9 +144,18 @@ export function SiteNav({
   );
 }
 
-function MobileLink({ href, children }: { href: string; children: React.ReactNode }) {
+function MobileLink({
+  href,
+  icon: Icon,
+  children,
+}: {
+  href: string;
+  icon: typeof Search;
+  children: React.ReactNode;
+}) {
   return (
-    <Link href={href} className="flex min-h-11 items-center rounded-xl px-3 text-ink">
+    <Link href={href} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-ink">
+      <Icon className="h-4 w-4 text-ink/55" />
       {children}
     </Link>
   );

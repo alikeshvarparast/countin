@@ -7,6 +7,7 @@ import { EventMenu } from "@/components/event-menu";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
 import { PresenceVote } from "@/components/presence-vote";
+import { Avatar } from "@/components/avatar";
 import { PageFrame } from "@/components/page-frame";
 import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -238,7 +239,10 @@ export default async function WeeklyEventPage({
               <ul className="mt-1 space-y-1 text-sm">
                 {going.length === 0 && <li className="text-ink/45">No one yet.</li>}
                 {going.map(({ user }) => (
-                  <li key={user.id}>{user.name}</li>
+                  <li key={user.id} className="flex items-center gap-2 py-0.5">
+                    <Avatar src={user.imageUrl} name={user.name} size="xs" />
+                    <span className="truncate">{user.name}</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -247,7 +251,10 @@ export default async function WeeklyEventPage({
               <ul className="mt-1 space-y-1 text-sm">
                 {notGoing.length === 0 && <li className="text-ink/45">No one yet.</li>}
                 {notGoing.map(({ user }) => (
-                  <li key={user.id}>{user.name}</li>
+                  <li key={user.id} className="flex items-center gap-2 py-0.5">
+                    <Avatar src={user.imageUrl} name={user.name} size="xs" />
+                    <span className="truncate">{user.name}</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -257,9 +264,9 @@ export default async function WeeklyEventPage({
             <ul className="mt-2 space-y-2 text-sm">
               {approvedGuests.length === 0 && <li className="text-ink/45">No guests on the list yet.</li>}
               {approvedGuests.map((g) => (
-                <li key={g.id} className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    {g.label} <span className="text-ink/45">(guest of {nameOf(g.hostUserId)})</span>
+                <li key={g.id} className="flex items-center gap-2 py-0.5">
+                  <span className="min-w-0 flex-1 truncate">
+                    {g.label} <span className="text-ink/45">· guest of {nameOf(g.hostUserId)}</span>
                   </span>
                   {(admin || userId === g.hostUserId) && <GuestCancelButton guestId={g.id} />}
                 </li>

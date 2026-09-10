@@ -25,18 +25,15 @@ export default async function SupportPage() {
         <SupportForm />
       </Card>
       <h2 className="mt-10 font-display text-lg">Your tickets</h2>
-      <ul className="mt-4 space-y-2">
-        {rows.length === 0 && <li className="text-sm text-ink/45">Nothing sent yet.</li>}
+      <ul className="mt-4 overflow-hidden rounded-2xl border border-line bg-card">
+        {rows.length === 0 && <li className="px-3 py-6 text-sm text-ink/45">Nothing sent yet.</li>}
         {rows.map((row) => (
-          <li key={row.id}>
-            <Link
-              href={`/app/support/${row.id}`}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-3"
-            >
-              <span>
+          <li key={row.id} className="border-b border-line last:border-b-0">
+            <Link href={`/app/support/${row.id}`} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/60">
+              <p className="min-w-0 flex-1 truncate text-sm">
                 <span className="font-medium">{row.subject}</span>
-                <span className="mt-0.5 block text-xs text-ink/45">{formatWhen(row.updatedAt)}</span>
-              </span>
+                <span className="ml-2 text-ink/45">{formatWhen(row.updatedAt)}</span>
+              </p>
               <Badge tone={row.status === "closed" ? "line" : row.status === "open" ? "lime" : "clay"}>{row.status}</Badge>
             </Link>
           </li>

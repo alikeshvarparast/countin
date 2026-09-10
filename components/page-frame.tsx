@@ -36,3 +36,13 @@ export function ItemGrid({
 }) {
   return <div className={cn(itemGridClass, className)}>{children}</div>;
 }
+
+export function ItemList({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <ul className={cn("overflow-hidden rounded-2xl border border-line bg-card", className)}>{children}</ul>;
+}

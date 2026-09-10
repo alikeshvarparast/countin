@@ -2,8 +2,8 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { ItemGrid } from "@/components/page-frame";
-import { Badge, Card } from "@/components/ui";
+import { ItemList } from "@/components/page-frame";
+import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
 import { weeklyEvents } from "@/lib/db/schema";
 import { formatEventWhen } from "@/lib/utils";
@@ -33,22 +33,22 @@ export default async function EventsListPage({ params }: { params: Promise<{ slu
           </Link>
         )}
       </div>
-      <ItemGrid className="mt-6">
-        {events.length === 0 && <Card className="col-span-full">No weekly events yet.</Card>}
+      <ItemList className="mt-6">
+        {events.length === 0 && <li className="px-3 py-6 text-sm text-ink/45">No weekly events yet.</li>}
         {events.map((e) => (
-          <Link key={e.id} href={`/app/c/${slug}/events/${e.id}`} className="block h-full">
-            <Card className="flex h-full items-center justify-between transition hover:-translate-y-0.5 hover:border-primary/30">
-              <div>
-                <h3 className="font-medium">{e.title}</h3>
-                <p className="text-sm text-cream/50">
+          <li key={e.id} className="border-b border-line last:border-b-0">
+            <Link href={`/app/c/${slug}/events/${e.id}`} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/60">
+              <p className="min-w-0 flex-1 truncate text-sm">
+                <span className="font-medium">{e.title}</span>
+                <span className="ml-2 text-ink/45">
                   {formatEventWhen(e.startsAt, community.timezone, e.hasTime, e.durationMinutes)} · {e.location || community.location || "Pitch TBD"}
-                </p>
-              </div>
+                </span>
+              </p>
               <Badge>{e.status.replaceAll("_", " ")}</Badge>
-            </Card>
-          </Link>
+            </Link>
+          </li>
         ))}
-      </ItemGrid>
+      </ItemList>
     </div>
   );
 }

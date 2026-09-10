@@ -30,17 +30,17 @@ export async function AppHeader() {
           <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
           <span className="font-display text-xl tracking-tight text-primary">{APP_NAME}</span>
         </Link>
-        {session && name && (
-          <Link
-            href="/app/profile"
-            className="flex min-w-0 flex-1 items-center gap-2 md:hidden"
-            aria-label={`Signed in as ${name}`}
-          >
-            <Avatar src={imageUrl} name={name} size="sm" />
-            <span className="truncate text-sm font-medium text-ink">{name}</span>
-          </Link>
-        )}
-        <div className="ml-auto flex min-w-0 items-center">
+        <div className="ml-auto flex min-w-0 items-center gap-1">
+          {session && name && (
+            <Link
+              href="/app/profile"
+              className="flex min-w-0 max-w-[38vw] items-center gap-2 md:hidden"
+              aria-label={`Signed in as ${name}`}
+            >
+              <span className="truncate text-sm font-medium text-ink">{name}</span>
+              <Avatar src={imageUrl} name={name} size="sm" />
+            </Link>
+          )}
           <SiteNav loggedIn={Boolean(session)} name={name} imageUrl={imageUrl} unread={unread} />
         </div>
       </div>

@@ -6,8 +6,7 @@ import { AddMemberButton } from "@/components/add-member-button";
 import { MemberManage } from "@/components/member-manage";
 import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
-import { ItemGrid, itemGridClass } from "@/components/page-frame";
-import { Badge, Card } from "@/components/ui";
+import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
 import { memberships, users } from "@/lib/db/schema";
 import { notFound } from "next/navigation";
@@ -56,18 +55,16 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
       </div>
       {staff && pending.length > 0 && (
         <section>
-          <h3 className="font-display text-xl">Join requests</h3>
-          <ItemGrid className="mt-4">
+          <h3 className="font-display text-lg">Join requests</h3>
+          <ul className="mt-3 overflow-hidden rounded-2xl border border-line bg-card">
             {pending.map(({ membership, user }) => (
-              <Card key={membership.id} className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <Avatar src={user.imageUrl} name={user.name} size="md" />
-                  <div>
-                    <p className="font-medium">{user.name}</p>
-                    <p className="text-sm text-cream/50">{user.email}</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
+              <li key={membership.id} className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0">
+                <Avatar src={user.imageUrl} name={user.name} size="sm" />
+                <p className="min-w-0 flex-1 truncate text-sm">
+                  <span className="font-medium">{user.name}</span>
+                  <span className="ml-2 text-ink/45">{user.email}</span>
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
                   <form
                     action={async (formData) => {
                       "use server";
@@ -76,7 +73,7 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
                   >
                     <input type="hidden" name="membershipId" value={membership.id} />
                     <input type="hidden" name="decision" value="approved" />
-                    <SubmitButton>Approve</SubmitButton>
+                    <SubmitButton size="sm">Approve</SubmitButton>
                   </form>
                   <form
                     action={async (formData) => {
@@ -86,25 +83,25 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
                   >
                     <input type="hidden" name="membershipId" value={membership.id} />
                     <input type="hidden" name="decision" value="rejected" />
-                    <SubmitButton variant="ghost">Decline</SubmitButton>
+                    <SubmitButton variant="ghost" size="sm">
+                      Decline
+                    </SubmitButton>
                   </form>
                 </div>
-              </Card>
+              </li>
             ))}
-          </ItemGrid>
+          </ul>
         </section>
       )}
-      <ul className={itemGridClass}>
+      <ul className="overflow-hidden rounded-2xl border border-line bg-card">
         {squad.map(({ membership, user }) => (
-          <li key={membership.id} className="flex h-full flex-col gap-3 rounded-2xl border border-line bg-card px-4 py-3 transition hover:border-primary/25 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar src={user.imageUrl} name={user.name} size="md" />
-              <div className="min-w-0">
-                <p className="truncate font-medium">{user.name}</p>
-                <p className="text-xs text-cream/50">@{user.telegramUsername}</p>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
+          <li key={membership.id} className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0">
+            <Avatar src={user.imageUrl} name={user.name} size="sm" />
+            <p className="min-w-0 flex-1 truncate text-sm">
+              <span className="font-medium">{user.name}</span>
+              {user.telegramUsername && <span className="ml-2 text-ink/45">@{user.telegramUsername}</span>}
+            </p>
+            <div className="flex shrink-0 items-center gap-1.5">
               <Badge tone={roleTone(membership.role, membership.status)}>
                 {membership.status === "suspended" ? "suspended" : membership.role}
               </Badge>

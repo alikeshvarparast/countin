@@ -70,29 +70,25 @@ export function EventHomeCard({
   const requests = pendingGuests > 0 ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}` : "";
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-line bg-card p-5 shadow-[0_8px_24px_rgba(63,58,52,0.06)] transition hover:-translate-y-0.5 hover:border-primary/30">
-      <div className="flex items-start gap-4">
-        <DateTile ms={startsAt} timeZone={timeZone} />
+    <div className="flex h-full flex-col rounded-2xl border border-line bg-card px-3 py-3 shadow-[0_8px_24px_rgba(63,58,52,0.06)]">
+      <div className="flex items-center gap-3">
+        <DateTile ms={startsAt} timeZone={timeZone} compact />
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.18em] text-primary">Session</p>
-              <Link href={href} className="mt-1 block font-display text-lg leading-tight hover:text-primary">
+              <Link href={href} className="block truncate text-sm font-medium leading-tight hover:text-primary">
                 {title}
               </Link>
-              <p className="mt-1 text-sm text-ink/55">
+              <p className="truncate text-xs text-ink/50">
                 {formatEventTimeLine(startsAt, timeZone, hasTime, durationMinutes)}
                 {location ? ` · ${location}` : ""}
-              </p>
-              <p className="mt-1 text-xs text-ink/45">
-                {headcount} going
+                {` · ${headcount} going`}
                 {guestCount > 0 ? ` · ${guestCount} guest${guestCount === 1 ? "" : "s"}` : ""}
-                {` · min ${minPlayers}`}
                 {myStatus === "going" ? " · You are in" : myStatus === "not_going" ? " · You are out" : ""}
+                {requests ? ` · ${requests}` : ""}
               </p>
-              {requests ? <p className="mt-1 text-xs text-clay">{requests} waiting for approval</p> : null}
             </div>
-            <div className="flex shrink-0 items-start gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               {requests ? <Badge tone="clay">{requests}</Badge> : null}
               {status && <Badge>{status.replaceAll("_", " ")}</Badge>}
               <EventMenu
@@ -122,7 +118,7 @@ export function EventHomeCard({
       </div>
 
       {status !== "polling" && (
-        <div className="mt-auto pt-4">
+        <div className="mt-auto pt-2">
           <PresenceVote
             eventId={eventId}
             myStatus={myStatus}

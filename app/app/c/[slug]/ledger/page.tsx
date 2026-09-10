@@ -60,18 +60,18 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
         <ul className="mt-4 space-y-3">
           {visible.length === 0 && <li className="text-cream/50">Nothing on the ledger yet.</li>}
           {visible.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-              <div>
-                <p>
-                  {nameOf(row.fromUserId)} → {nameOf(row.toUserId)}{" "}
-                  <strong>{formatMoney(row.amountCents, community.currency)}</strong>
-                </p>
-                <p className="text-xs text-cream/50">
+            <li key={row.id} className="flex items-center gap-3 border-b border-line py-2 last:border-b-0">
+              <p className="min-w-0 flex-1 truncate text-sm">
+                <span className="font-medium">
+                  {nameOf(row.fromUserId)} → {nameOf(row.toUserId)}
+                </span>
+                <span className="ml-2">{formatMoney(row.amountCents, community.currency)}</span>
+                <span className="ml-2 text-ink/45">
                   {row.reason.replaceAll("_", " ")} · {formatWhen(row.createdAt, community.timezone)}
                   {row.toUserId === userId && row.status === "pending" ? " · your payment to verify" : ""}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
+                </span>
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
                 <Badge tone={row.status === "settled" ? "lime" : "clay"}>{row.status}</Badge>
                 {row.status === "pending" && (admin || row.toUserId === userId) && (
                   <form
@@ -80,7 +80,9 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
                       await settleLedgerEntry(row.id);
                     }}
                   >
-                    <SubmitButton variant="ghost">{row.toUserId === userId ? "Verify payment" : "Mark paid"}</SubmitButton>
+                    <SubmitButton variant="ghost" size="sm">
+                      {row.toUserId === userId ? "Verify" : "Paid"}
+                    </SubmitButton>
                   </form>
                 )}
               </div>

@@ -2,8 +2,8 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { ItemGrid } from "@/components/page-frame";
-import { Badge, Card } from "@/components/ui";
+import { ItemList } from "@/components/page-frame";
+import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
 import { seasons } from "@/lib/db/schema";
 import { formatDuration, WEEKDAY_LABELS } from "@/lib/utils";
@@ -33,8 +33,8 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
           </Link>
         )}
       </div>
-      <ItemGrid className="mt-6">
-        {rows.length === 0 && <Card className="col-span-full">No seasons yet.</Card>}
+      <ItemList className="mt-6">
+        {rows.length === 0 && <li className="px-3 py-6 text-sm text-ink/45">No seasons yet.</li>}
         {rows.map((s) => {
           const days = (JSON.parse(s.weekdays) as number[]).map((d) => WEEKDAY_LABELS[d].slice(0, 3)).join(", ");
           const badge =
@@ -54,18 +54,18 @@ export default async function SeasonsPage({ params }: { params: Promise<{ slug: 
                   ? "Cancelled — hidden from the event list"
                   : `${s.startDate} → ${s.endDate} · ${days}`;
           return (
-            <Link key={s.id} href={`/app/c/${slug}/seasons/${s.id}`} className="block h-full">
-              <Card className="h-full transition hover:-translate-y-0.5 hover:border-primary/30">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-medium">{s.name}</h3>
-                  <Badge>{badge}</Badge>
-                </div>
-                <p className="mt-1 text-sm text-cream/50">{summary}</p>
-              </Card>
-            </Link>
+            <li key={s.id} className="border-b border-line last:border-b-0">
+              <Link href={`/app/c/${slug}/seasons/${s.id}`} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/60">
+                <p className="min-w-0 flex-1 truncate text-sm">
+                  <span className="font-medium">{s.name}</span>
+                  <span className="ml-2 text-ink/45">{summary}</span>
+                </p>
+                <Badge>{badge}</Badge>
+              </Link>
+            </li>
           );
         })}
-      </ItemGrid>
+      </ItemList>
     </div>
   );
 }
