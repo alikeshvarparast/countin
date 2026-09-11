@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, MessageCircle, Users, Wallet } from "lucide-react";
 import { Avatar } from "@/components/avatar";
+import { useMobileKeyboardClass } from "@/components/use-mobile-keyboard";
 import { cn } from "@/lib/utils";
 import { CLUB_COOKIE } from "@/lib/brand";
 
@@ -22,6 +23,7 @@ export function ClubNav({
   ledgerActions?: number;
 }) {
   const pathname = usePathname();
+  useMobileKeyboardClass();
   const base = `/app/c/${slug}`;
   const onChat = pathname.startsWith(`${base}/chat`);
   const onLedger = pathname.startsWith(`${base}/ledger`);
@@ -59,8 +61,8 @@ export function ClubNav({
         </div>
       </div>
 
-      {/* Mobile: bottom tabs only — club identity lives in the top header */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-muted/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+      {/* Mobile: bottom tabs — hidden while the soft keyboard is open */}
+      <nav className="club-mobile-nav fixed inset-x-0 bottom-0 z-20 border-t border-line bg-muted/95 pb-[env(safe-area-inset-bottom)] backdrop-blur transition-[transform,opacity] duration-200 lg:hidden">
         <div className="mx-auto grid max-w-lg grid-cols-4">
           {tabs.map((tab) => {
             const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);

@@ -270,7 +270,7 @@ export function ChatRoom({
       {!atBottom && (
         <button
           type="button"
-          className="absolute bottom-[5.5rem] right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-ink shadow-[0_8px_24px_rgba(63,58,52,0.12)]"
+          className="chat-jump-latest absolute bottom-[5.5rem] right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-ink shadow-[0_8px_24px_rgba(63,58,52,0.12)]"
           aria-label="Jump to latest message"
           onClick={() => {
             followLatest.current = true;
@@ -283,7 +283,7 @@ export function ChatRoom({
       )}
       <form
         ref={formRef}
-        className="relative shrink-0 border-t border-line/60 bg-muted/70 px-3 pb-3 pt-2 backdrop-blur-md"
+        className="chat-composer relative shrink-0 border-t border-line/60 bg-muted/70 px-3 pb-2 pt-2 backdrop-blur-md transition-[padding] duration-200"
         action={async (formData) => {
           const result = await sendChatMessage(formData);
           if (!result?.error) {
@@ -294,6 +294,7 @@ export function ChatRoom({
             followLatest.current = true;
             pinToLatest();
             setAtBottom(true);
+            inputRef.current?.blur();
             router.refresh();
           }
         }}

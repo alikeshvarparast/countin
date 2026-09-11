@@ -93,7 +93,7 @@ select {
   box-sizing: border-box;
 }
 
-/* iOS Safari date/time controls are wide; keep them inside cards/grids. */
+/* iOS Safari date/time controls are wide/tall; match regular input height. */
 input[type="date"],
 input[type="time"],
 input[type="datetime-local"],
@@ -103,6 +103,59 @@ input[type="week"] {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  max-height: 2.75rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: normal;
+}
+
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value {
+  text-align: left;
+  height: 2.75rem;
+  line-height: 2.75rem;
+  margin: 0;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit {
+  display: flex;
+  align-items: center;
+  height: 2.75rem;
+  padding: 0;
+  margin: 0;
+}
+
+/* Soft keyboard open: hide mobile tab bar and drop chat nav padding. */
+html.keyboard-open .club-mobile-nav {
+  transform: translateY(110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+html.keyboard-open .chat-shell {
+  padding-bottom: 0 !important;
+}
+
+html.keyboard-open .chat-composer {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+html.keyboard-open .chat-jump-latest {
+  bottom: 6rem;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  margin-inline-end: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  opacity: 0.7;
 }
 
 .pitch-grid {

@@ -30,11 +30,14 @@ export function Button({
   );
 }
 
-export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, type, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  const temporal = type === "date" || type === "time" || type === "datetime-local" || type === "month" || type === "week";
   return (
     <input
+      type={type}
       className={cn(
-        "w-full min-w-0 max-w-full rounded-xl border border-line bg-card px-3 py-2.5 text-ink outline-none placeholder:text-ink/40 focus:border-primary/60",
+        "h-11 w-full min-w-0 max-w-full rounded-xl border border-line bg-card px-3 text-ink outline-none placeholder:text-ink/40 focus:border-primary/60",
+        temporal ? "py-0" : "py-2.5",
         className,
       )}
       {...props}
@@ -58,7 +61,7 @@ export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLS
   return (
     <select
       className={cn(
-        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-ink outline-none focus:border-primary/60",
+        "h-11 w-full min-w-0 max-w-full rounded-xl border border-line bg-card px-3 text-ink outline-none focus:border-primary/60",
         className,
       )}
       {...props}
