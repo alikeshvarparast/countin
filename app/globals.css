@@ -89,6 +89,20 @@ input,
 textarea,
 select {
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* iOS Safari date/time controls are wide; keep them inside cards/grids. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pitch-grid {

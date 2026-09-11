@@ -35,12 +35,17 @@ export function EditWeeklyEventForm({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [startTime, setStartTime] = useState(defaults.hasTime ? defaults.startTime : "");
+  const [rsvpDeadlineAt, setRsvpDeadlineAt] = useState(defaults.rsvpDeadlineAt);
   const backHref = returnTo || `/app/c/${slug}/events/${eventId}`;
 
   return (
     <form
-      className="space-y-4"
+      className="min-w-0 space-y-4"
       action={async (formData) => {
+        // Controlled fields: ensure cleared values reach the server on iOS.
+        formData.set("startTime", startTime);
+        formData.set("rsvpDeadlineAt", rsvpDeadlineAt);
         const result = await updateWeeklyEvent(formData);
         if (result?.error) setError(result.error);
         else router.push(backHref);
@@ -79,23 +84,57 @@ export function EditWeeklyEventForm({
         </p>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Date">
               <Input name="startDate" type="date" required defaultValue={defaults.startDate} />
             </Field>
             <Field label="Kickoff time">
-              <Input name="startTime" type="time" defaultValue={defaults.hasTime ? defaults.startTime : ""} />
+              <div className="flex min-w-0 items-center gap-2">
+                <Input
+                  name="startTime"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="min-w-0 flex-1"
+                />
+                {startTime ? (
+                  <button
+                    type="button"
+                    className="shrink-0 text-sm text-primary"
+                    onClick={() => setStartTime("")}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
             </Field>
           </div>
-          <p className="-mt-2 text-xs text-ink/45">Leave time blank if only the day is fixed.</p>
+          <p className="-mt-2 text-xs text-ink/45">Tap Clear for date-only — iPhone cannot empty the clock by itself.</p>
           <Field label="Presence deadline">
-            <Input name="rsvpDeadlineAt" type="datetime-local" defaultValue={defaults.rsvpDeadlineAt} />
+            <div className="flex min-w-0 items-center gap-2">
+              <Input
+                name="rsvpDeadlineAt"
+                type="datetime-local"
+                value={rsvpDeadlineAt}
+                onChange={(e) => setRsvpDeadlineAt(e.target.value)}
+                className="min-w-0 flex-1"
+              />
+              {rsvpDeadlineAt ? (
+                <button
+                  type="button"
+                  className="shrink-0 text-sm text-primary"
+                  onClick={() => setRsvpDeadlineAt("")}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
           </Field>
         </>
       )}
-      <fieldset className="space-y-3 rounded-2xl border border-line p-3">
+      <fieldset className="min-w-0 space-y-3 rounded-2xl border border-line p-3">
         <legend className="px-1 text-xs uppercase tracking-wider text-ink/50">Duration (optional)</legend>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Hours">
             <Input
               name="durationHours"

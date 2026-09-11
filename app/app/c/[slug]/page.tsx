@@ -137,7 +137,7 @@ export default async function CommunityOverviewPage({
     if (deadlinePassed && !admin) return false;
     return !rsvpRows.some((r) => r.eventId === e.id && r.userId === userId);
   }
-  /** Open for RSVP until deadline / admin moves on — keep visible after you vote. */
+  /** Keep open nights visible after you reply — until deadline / admin closes. */
   function eventRsvpOpen(e: (typeof events)[number]) {
     if (suspended) return false;
     const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
@@ -380,7 +380,7 @@ export default async function CommunityOverviewPage({
       {(openRsvpEvents.length > 0 || openVoteSeasons.length > 0) && (
         <section>
           <SectionTitle tone="vote">
-            {needsVoteEvents.length > 0 || needsVoteSeasons.length > 0 ? "Needs your vote" : "Open for RSVP"}
+            {needsVoteEvents.length > 0 || needsVoteSeasons.length > 0 ? "Needs your reply" : "Presence open"}
           </SectionTitle>
           <ItemGrid>
             {openVoteSeasons.map((s) => {

@@ -34,7 +34,7 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return (
     <input
       className={cn(
-        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-ink outline-none placeholder:text-ink/40 focus:border-primary/60",
+        "w-full min-w-0 max-w-full rounded-xl border border-line bg-card px-3 py-2.5 text-ink outline-none placeholder:text-ink/40 focus:border-primary/60",
         className,
       )}
       {...props}
@@ -80,7 +80,7 @@ export function Card({
   id?: string;
 }) {
   return (
-    <div id={id} className={cn("rounded-2xl border border-line bg-card p-5", className)}>
+    <div id={id} className={cn("min-w-0 overflow-x-hidden rounded-2xl border border-line bg-card p-5", className)}>
       {children}
     </div>
   );
@@ -116,7 +116,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <Label>{label}</Label>
       {children}
     </div>

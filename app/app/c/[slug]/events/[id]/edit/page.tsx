@@ -37,7 +37,7 @@ export default async function EditEventPage({
   const backLabel = returnTo === eventHref || returnTo.startsWith(`${eventHref}/`) ? "Back to event" : "Back";
 
   return (
-    <div className="max-w-lg">
+    <div className="mx-auto w-full min-w-0 max-w-lg px-1 sm:px-0">
       <Link href={returnTo} className="text-sm text-primary">
         ← {backLabel}
       </Link>
