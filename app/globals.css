@@ -149,6 +149,44 @@ html.keyboard-open .chat-jump-latest {
   bottom: 6rem;
 }
 
+/* WhatsApp-like chat canvas */
+.chat-wa-bg {
+  background-color: #e8e0d5;
+  background-image:
+    radial-gradient(rgba(60, 134, 99, 0.06) 1.2px, transparent 1.2px),
+    radial-gradient(rgba(63, 58, 52, 0.045) 1px, transparent 1px);
+  background-size: 22px 22px, 11px 11px;
+  background-position: 0 0, 6px 8px;
+}
+
+.chat-wa-bubble-mine {
+  background: #d9f5e6;
+  color: #1f2a24;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+.chat-wa-bubble-theirs {
+  background: #ffffff;
+  color: #1f2a24;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+.chat-wa-bubble-deleted {
+  background: rgba(255, 255, 255, 0.72);
+  color: #667781;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.08);
+}
+
+.chat-wa-day {
+  background: #ffeeba;
+  color: #54656f;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+.chat-wa-composer {
+  background: #f0f2f5;
+}
+
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator,
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {

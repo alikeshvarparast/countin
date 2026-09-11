@@ -71,24 +71,38 @@ export default async function ChatPage({ params }: { params: Promise<{ slug: str
 
   const lastReadAt = getChatLastReadAt(community.id, session.user.id);
   const firstUnreadId =
-    rows.find((r) => r.message.userId !== session.user.id && r.message.createdAt > lastReadAt)?.message.id ?? null;
+    rows.find(
+      (r) =>
+        r.message.userId !== session.user.id &&
+        !r.message.deletedAt &&
+        r.message.createdAt > lastReadAt,
+    )?.message.id ?? null;
 
   return (
     <ChatRoom
       key={community.id}
       slug={slug}
+      timezone={community.timezone}
       currentUserId={session.user.id}
       firstUnreadId={firstUnreadId}
       messages={rows.map(({ message, user }) => {
         const parent = message.replyToId ? byId.get(message.replyToId) : undefined;
+        const parentDeleted = Boolean(parent?.message.deletedAt);
         return {
           id: message.id,
           body: message.body,
           createdAt: message.createdAt,
+          editedAt: message.editedAt,
+          deletedAt: message.deletedAt,
           replyTo: parent
-            ? { id: parent.message.id, body: parent.message.body, name: parent.user.name }
+            ? {
+                id: parent.message.id,
+                body: parentDeleted ? "Deleted message" : parent.message.body,
+                name: parent.user.name,
+                deleted: parentDeleted,
+              }
             : null,
-          reactions: reactionMap.get(message.id) ?? [],
+          reactions: message.deletedAt ? [] : reactionMap.get(message.id) ?? [],
           user: { id: user.id, name: user.name, imageUrl: user.imageUrl },
         };
       })}

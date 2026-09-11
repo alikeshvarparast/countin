@@ -420,6 +420,12 @@ if (!hasColumn("communities", "invite_token")) {
 if (!hasColumn("chat_messages", "reply_to_id")) {
   sqlite.exec("ALTER TABLE chat_messages ADD COLUMN reply_to_id TEXT");
 }
+if (!hasColumn("chat_messages", "edited_at")) {
+  sqlite.exec("ALTER TABLE chat_messages ADD COLUMN edited_at INTEGER");
+}
+if (!hasColumn("chat_messages", "deleted_at")) {
+  sqlite.exec("ALTER TABLE chat_messages ADD COLUMN deleted_at INTEGER");
+}
 
 const missingInvite = sqlite.prepare("SELECT id FROM communities WHERE invite_token IS NULL OR invite_token = ''").all() as {
   id: string;

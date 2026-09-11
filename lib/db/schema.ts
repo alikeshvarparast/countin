@@ -437,6 +437,8 @@ export const chatMessages = sqliteTable(
       .references(() => users.id),
     body: text("body").notNull(),
     replyToId: text("reply_to_id"),
+    editedAt: integer("edited_at"),
+    deletedAt: integer("deleted_at"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("chat_community_created_idx").on(t.communityId, t.createdAt)],

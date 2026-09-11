@@ -35,6 +35,7 @@ export async function sendChatMessage(formData: FormData) {
   if (replyToId) {
     const parent = db.select().from(chatMessages).where(eq(chatMessages.id, replyToId)).get();
     if (!parent || parent.communityId !== community.id) return { error: "Reply target not found." };
+    if (parent.deletedAt) return { error: "That message was deleted." };
   }
 
   const createdAt = now();
@@ -70,6 +71,54 @@ export async function sendChatMessage(formData: FormData) {
   return { ok: true };
 }
 
+export async function editChatMessage(formData: FormData) {
+  const user = await requireUser();
+  const slug = String(formData.get("slug") ?? "");
+  const messageId = String(formData.get("messageId") ?? "");
+  const body = String(formData.get("body") ?? "").trim();
+  const community = getCommunityBySlug(slug);
+  if (!community) return { error: "Community not found." };
+  requireMember(community.id, user.id);
+  if (body.length < 1) return { error: "Write a message." };
+  if (body.length > 2000) return { error: "Keep messages under 2000 characters." };
+
+  const message = db.select().from(chatMessages).where(eq(chatMessages.id, messageId)).get();
+  if (!message || message.communityId !== community.id) return { error: "Message not found." };
+  if (message.userId !== user.id) return { error: "You can only edit your own messages." };
+  if (message.deletedAt) return { error: "This message was deleted." };
+
+  db.update(chatMessages)
+    .set({ body, editedAt: now() })
+    .where(eq(chatMessages.id, messageId))
+    .run();
+
+  revalidatePath(`/app/c/${slug}/chat`);
+  return { ok: true };
+}
+
+export async function deleteChatMessage(formData: FormData) {
+  const user = await requireUser();
+  const slug = String(formData.get("slug") ?? "");
+  const messageId = String(formData.get("messageId") ?? "");
+  const community = getCommunityBySlug(slug);
+  if (!community) return { error: "Community not found." };
+  requireMember(community.id, user.id);
+
+  const message = db.select().from(chatMessages).where(eq(chatMessages.id, messageId)).get();
+  if (!message || message.communityId !== community.id) return { error: "Message not found." };
+  if (message.userId !== user.id) return { error: "You can only delete your own messages." };
+  if (message.deletedAt) return { error: "Already deleted." };
+
+  db.update(chatMessages)
+    .set({ body: "", deletedAt: now(), editedAt: null })
+    .where(eq(chatMessages.id, messageId))
+    .run();
+
+  revalidatePath(`/app/c/${slug}/chat`);
+  revalidatePath(`/app/c/${slug}`, "layout");
+  return { ok: true };
+}
+
 export async function markChatRead(slug: string) {
   const user = await requireUser();
   const community = getCommunityBySlug(slug);
@@ -94,6 +143,7 @@ export async function toggleChatReaction(formData: FormData) {
 
   const message = db.select().from(chatMessages).where(eq(chatMessages.id, messageId)).get();
   if (!message || message.communityId !== community.id) return { error: "Message not found." };
+  if (message.deletedAt) return { error: "This message was deleted." };
 
   const existing = db
     .select()

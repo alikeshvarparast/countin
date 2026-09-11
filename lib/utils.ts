@@ -203,6 +203,30 @@ export function formatTime(ms: number | null | undefined, timeZone?: string) {
   }).format(new Date(ms));
 }
 
+export function chatDayKey(ms: number, timeZone?: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZone || "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+
+export function formatChatDayLabel(ms: number, timeZone?: string) {
+  const tz = timeZone || "UTC";
+  const todayKey = chatDayKey(Date.now(), tz);
+  const key = chatDayKey(ms, tz);
+  if (key === todayKey) return "Today";
+  const yesterday = Date.now() - 24 * 60 * 60 * 1000;
+  if (key === chatDayKey(yesterday, tz)) return "Yesterday";
+  return new Intl.DateTimeFormat("en", {
+    timeZone: tz,
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(ms));
+}
+
 export function localInputToMs(value: string) {
   const t = new Date(value).getTime();
   return Number.isFinite(t) ? t : null;

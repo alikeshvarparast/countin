@@ -1,4 +1,4 @@
-import { and, count, eq, gt, ne } from "drizzle-orm";
+import { and, count, eq, gt, isNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { chatMessages, chatReads } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
@@ -38,6 +38,7 @@ export function countUnreadChat(communityId: string, userId: string) {
           eq(chatMessages.communityId, communityId),
           gt(chatMessages.createdAt, lastReadAt),
           ne(chatMessages.userId, userId),
+          isNull(chatMessages.deletedAt),
         ),
       )
       .get()?.n ?? 0
