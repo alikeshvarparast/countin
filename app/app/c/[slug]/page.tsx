@@ -122,8 +122,9 @@ export default async function CommunityOverviewPage({
   const signupRows = db.select().from(seasonSignups).all();
   const contractRows = db.select().from(contracts).all();
 
-  const needsVoteSeasons = votingSeasons.filter((s) => {
-    if (!userId || suspended) return false;
+  const openVoteSeasons = votingSeasons.filter((s) => !suspended);
+  const needsVoteSeasons = openVoteSeasons.filter((s) => {
+    if (!userId) return false;
     return !signupRows.some((r) => r.seasonId === s.id && r.userId === userId);
   });
 
@@ -136,9 +137,19 @@ export default async function CommunityOverviewPage({
     if (deadlinePassed && !admin) return false;
     return !rsvpRows.some((r) => r.eventId === e.id && r.userId === userId);
   }
+  /** Open for RSVP until deadline / admin moves on — keep visible after you vote. */
+  function eventRsvpOpen(e: (typeof events)[number]) {
+    if (suspended) return false;
+    const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
+    const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
+    if (!rsvpOpen) return false;
+    if (deadlinePassed && !admin) return false;
+    return true;
+  }
   const needsVoteEvents = datedEvents.filter(eventNeedsVote);
-  const needsVoteIds = new Set(needsVoteEvents.map((e) => e.id));
-  const restEvents = datedEvents.filter((e) => !needsVoteIds.has(e.id));
+  const openRsvpEvents = datedEvents.filter(eventRsvpOpen);
+  const openRsvpIds = new Set(openRsvpEvents.map((e) => e.id));
+  const restEvents = datedEvents.filter((e) => !openRsvpIds.has(e.id));
   const upcomingEvents = restEvents.filter((e) => e.startsAt && e.startsAt <= now + weekMs);
   const futureEvents = restEvents.filter((e) => !e.startsAt || e.startsAt > now + weekMs);
   const upcomingSessionsSoon = upcomingSessions.filter((s) => s.startsAt <= now + weekMs);
@@ -232,10 +243,11 @@ export default async function CommunityOverviewPage({
   });
 
   const allLivePolls = [...liveClubPolls, ...eventPolls.filter((p) => p !== null)];
-  const livePolls = allLivePolls.filter((poll) => {
-    if (!poll || !userId || suspended) return Boolean(poll);
-    return !poll.options.some((o) => o.mine);
-  });
+  /** Keep open polls on Home after you vote — hide only when closed. */
+  const livePolls = allLivePolls.filter((poll) => Boolean(poll));
+  const pollsAwaitingYou = livePolls.some(
+    (poll) => poll && userId && !suspended && !poll.options.some((o) => o.mine),
+  );
   const createLinks = staff ? (
     <>
       <Link
@@ -338,7 +350,7 @@ export default async function CommunityOverviewPage({
 
       {livePolls.length > 0 && (
         <section>
-          <SectionTitle tone="vote">Needs your vote · polls</SectionTitle>
+          <SectionTitle tone="vote">{pollsAwaitingYou ? "Needs your vote · polls" : "Open polls"}</SectionTitle>
           <ItemGrid>
             {livePolls.map((poll) =>
               poll ? (
@@ -364,12 +376,18 @@ export default async function CommunityOverviewPage({
         </section>
       )}
 
-      {(needsVoteEvents.length > 0 || needsVoteSeasons.length > 0) && (
+      {(openRsvpEvents.length > 0 || openVoteSeasons.length > 0) && (
         <section>
-          <SectionTitle tone="vote">Needs your vote</SectionTitle>
+          <SectionTitle tone="vote">
+            {needsVoteEvents.length > 0 || needsVoteSeasons.length > 0 ? "Needs your vote" : "Open for RSVP"}
+          </SectionTitle>
           <ItemGrid>
-            {needsVoteSeasons.map((s) => {
+            {openVoteSeasons.map((s) => {
               const inCount = signupRows.filter((r) => r.seasonId === s.id && r.intent !== "decline").length;
+              const mySignup = userId
+                ? signupRows.find((r) => r.seasonId === s.id && r.userId === userId)
+                : undefined;
+              const waitingOnYou = !mySignup;
               return (
                 <EventCard
                   key={s.id}
@@ -377,12 +395,18 @@ export default async function CommunityOverviewPage({
                   title={s.name}
                   location={s.location || community.location}
                   status="voting"
-                  meta={`${inCount} agreed · say if you want a contract place`}
-                  emphasize
+                  meta={
+                    mySignup?.intent === "decline"
+                      ? `${inCount} agreed · you said not this season`
+                      : mySignup
+                        ? `${inCount} agreed · you agreed`
+                        : `${inCount} agreed · say if you want a contract place`
+                  }
+                  emphasize={waitingOnYou}
                 />
               );
             })}
-            {needsVoteEvents.map(renderWeeklyCard)}
+            {openRsvpEvents.map(renderWeeklyCard)}
           </ItemGrid>
         </section>
       )}
