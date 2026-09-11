@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin, listApprovedMembers } from "@/lib/access";
-import { addContract, cancelSeason, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
+import { cancelSeason, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
 import { SubmitButton } from "@/components/submit-button";
 import { SeasonRatesForm } from "@/components/season-rates-form";
-import { Badge, Card, Field, Input } from "@/components/ui";
+import { ContractMembersPanel } from "@/components/contract-members-panel";
+import { Badge, Card } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { db } from "@/lib/db";
 import { contracts, seasonSessions, seasonSignups, seasons, sessionSlots, users } from "@/lib/db/schema";
@@ -56,10 +57,16 @@ export default async function SeasonDetailPage({
     season.regularPriceCents > 0
       ? `Contract ${formatMoney(season.regularPriceCents, community.currency)}${
           season.occasionalPriceCents
-            ? ` · occasional ${formatMoney(season.occasionalPriceCents, community.currency)}`
+            ? ` · occasional ${formatMoney(season.occasionalPriceCents, community.currency)}${
+                season.occasionalPremiumPercent != null ? ` (+${season.occasionalPremiumPercent}%)` : ""
+              }`
             : " · occasional rate later"
-        }`
+        }${season.prepaidSessionCount ? ` · ${season.prepaidSessionCount} nights in advance` : ""}`
       : "Session rates not set yet";
+  const duesPerPlayerCents =
+    season.regularPriceCents > 0 && season.prepaidSessionCount
+      ? season.regularPriceCents * season.prepaidSessionCount
+      : null;
   const sessions = db
     .select()
     .from(seasonSessions)
@@ -111,7 +118,7 @@ export default async function SeasonDetailPage({
           </p>
           <p className="mt-2 text-sm">
             {inRows.length} agreed
-            {season.minPlayers ? ` · target ${season.minPlayers}` : ""}
+            {season.minPlayers ? ` · minimum ${season.minPlayers}` : ""}
             {deadlinePassed ? " · Deadline passed; voting stays open until an admin closes it" : ""}
           </p>
           {!myContract && (
@@ -201,64 +208,48 @@ export default async function SeasonDetailPage({
 
       {admin && (
         <Card>
-          <h3 className="font-display text-lg">Session rates</h3>
+          <h3 className="font-display text-lg">Season settings</h3>
           <p className="mt-1 text-sm text-ink/60">
-            Set these when you know what a contract night costs, and what an occasional player pays.
+            Save rates, payment details, and how far ahead nights show on Home. After the first save, use Edit to
+            change them.
           </p>
           <SeasonRatesForm
             seasonId={season.id}
             currency={community.currency}
             regularPriceCents={season.regularPriceCents}
             occasionalPriceCents={season.occasionalPriceCents}
+            occasionalPremiumPercent={season.occasionalPremiumPercent}
+            prepaidSessionCount={season.prepaidSessionCount}
+            paymentInfo={season.paymentInfo}
+            collectorUserId={season.collectorUserId}
+            paymentRequestedAt={season.paymentRequestedAt}
+            homeVisibleWeeks={season.homeVisibleWeeks ?? 4}
+            members={listApprovedMembers(community.id).map((m) => ({ userId: m.userId, name: m.name }))}
+            canRequestPayment={Boolean(
+              (agreementClosed || nightsOpen) &&
+                season.regularPriceCents > 0 &&
+                season.prepaidSessionCount &&
+                season.paymentInfo,
+            )}
           />
-        </Card>
-      )}
-
-      {(agreementClosed || nightsOpen) && admin && (
-        <Card>
-          <h3 className="font-display text-lg">Add contract player</h3>
-          <form
-            action={async (formData) => {
-              "use server";
-              await addContract(formData);
-            }}
-            className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
-          >
-            <input type="hidden" name="seasonId" value={season.id} />
-            <div className="flex-1">
-              <Field label="Member email">
-                <Input name="email" type="email" required />
-              </Field>
-            </div>
-            <label className="flex items-center gap-2 pb-2 text-sm">
-              <input type="checkbox" name="prepaid" defaultChecked /> Prepaid all sessions
-            </label>
-            <SubmitButton>Add</SubmitButton>
-          </form>
         </Card>
       )}
 
       {(agreementClosed || nightsOpen) && (
         <Card>
-          <h3 className="font-display text-lg">Contracts</h3>
-          <ul className="mt-3 space-y-2">
-            {contractRows.length === 0 && <li className="text-cream/50">None yet.</li>}
-            {contractRows.map(({ contract, user }) => (
-              <li key={contract.id} className="flex items-center justify-between">
-                <span>{user.name}</span>
-                {contract.prepaid && <Badge tone="lime">prepaid</Badge>}
-              </li>
-            ))}
-          </ul>
-          <h4 className="mt-5 text-xs uppercase tracking-[0.18em] text-secondary">
-            Occasional · {occasionalRows.length}
-          </h4>
-          <ul className="mt-2 space-y-1 text-sm">
-            {occasionalRows.length === 0 && <li className="text-ink/45">Everyone is on contract.</li>}
-            {occasionalRows.map((member) => (
-              <li key={member.userId}>{member.name}</li>
-            ))}
-          </ul>
+          <ContractMembersPanel
+            seasonId={season.id}
+            isAdmin={admin}
+            contracts={contractRows.map(({ contract, user }) => ({
+              userId: user.id,
+              name: user.name,
+              prepaid: Boolean(contract.prepaid),
+            }))}
+            occasionalMembers={occasionalRows.map((m) => ({ userId: m.userId, name: m.name }))}
+            currency={community.currency}
+            duesPerPlayerCents={duesPerPlayerCents}
+            paymentRequested={Boolean(season.paymentRequestedAt)}
+          />
         </Card>
       )}
 
@@ -287,19 +278,26 @@ export default async function SeasonDetailPage({
       {nightsOpen && (
         <section>
           <h3 className="font-display text-lg">Nights</h3>
-          <p className="mt-1 text-sm text-ink/55">Each date is its own event. Guests and occasionals ask for a specific night.</p>
+          <p className="mt-1 text-sm text-ink/55">
+            Each date is its own event. Guests and occasionals ask for a specific night.
+          </p>
           <ul className="mt-3 space-y-2">
-            {sessions.filter((s) => s.status !== "cancelled").length === 0 && <li className="text-sm text-ink/45">No nights yet.</li>}
+            {sessions.filter((s) => s.status !== "cancelled").length === 0 && (
+              <li className="text-sm text-ink/45">No nights yet.</li>
+            )}
             {sessions
               .filter((s) => s.status !== "cancelled")
               .map((s) => (
-              <li key={s.id}>
-                <Link href={`/app/c/${slug}/sessions/${s.id}`} className="flex items-center justify-between rounded-xl border border-line px-4 py-3 hover:border-lime/40">
-                  <span>{formatEventWhen(s.startsAt, community.timezone, true, season.durationMinutes)}</span>
-                  <Badge>{s.status}</Badge>
-                </Link>
-              </li>
-            ))}
+                <li key={s.id}>
+                  <Link
+                    href={`/app/c/${slug}/sessions/${s.id}`}
+                    className="flex items-center justify-between rounded-xl border border-line px-4 py-3 hover:border-lime/40"
+                  >
+                    <span>{formatEventWhen(s.startsAt, community.timezone, true, season.durationMinutes)}</span>
+                    <Badge>{s.status}</Badge>
+                  </Link>
+                </li>
+              ))}
           </ul>
         </section>
       )}

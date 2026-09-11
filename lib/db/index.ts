@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
   telegram_chat_id TEXT,
   telegram_link_token TEXT,
   whatsapp_phone TEXT,
+  payment_info TEXT,
   image_url TEXT,
   password_reset_token TEXT,
   password_reset_expires INTEGER,
@@ -144,12 +145,14 @@ CREATE TABLE IF NOT EXISTS weekly_events (
   duration_minutes INTEGER,
   has_time INTEGER NOT NULL DEFAULT 1,
   min_players INTEGER NOT NULL DEFAULT 10,
+  max_players INTEGER,
   rsvp_deadline_at INTEGER,
   status TEXT NOT NULL DEFAULT 'open',
   total_cost_cents INTEGER,
   payment_mode TEXT NOT NULL DEFAULT 'postpay',
   payment_info TEXT,
   collector_user_id TEXT,
+  payment_requested_at INTEGER,
   created_by_id TEXT NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL
 );
@@ -200,6 +203,12 @@ CREATE TABLE IF NOT EXISTS seasons (
   duration_minutes INTEGER,
   regular_price_cents INTEGER NOT NULL DEFAULT 0,
   occasional_price_cents INTEGER,
+  occasional_premium_percent INTEGER,
+  prepaid_session_count INTEGER,
+  payment_info TEXT,
+  collector_user_id TEXT,
+  payment_requested_at INTEGER,
+  home_visible_weeks INTEGER NOT NULL DEFAULT 4,
   min_players INTEGER NOT NULL DEFAULT 10,
   signup_closes_at INTEGER,
   status TEXT NOT NULL DEFAULT 'signup',
@@ -256,6 +265,7 @@ CREATE TABLE IF NOT EXISTS invitations (
   type TEXT NOT NULL,
   to_user_id TEXT REFERENCES users(id),
   status TEXT NOT NULL DEFAULT 'open',
+  payment_info TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS invitations_session_idx ON invitations(session_id, status);
@@ -270,7 +280,9 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   status TEXT NOT NULL DEFAULT 'pending',
   weekly_event_id TEXT REFERENCES weekly_events(id),
   session_id TEXT REFERENCES season_sessions(id),
+  season_id TEXT REFERENCES seasons(id),
   external_payment_id TEXT,
+  claimed_at INTEGER,
   settled_at INTEGER,
   settled_by_id TEXT REFERENCES users(id),
   created_at INTEGER NOT NULL
@@ -441,8 +453,38 @@ if (!hasColumn("weekly_events", "duration_minutes")) {
 if (!hasColumn("weekly_events", "has_time")) {
   sqlite.exec("ALTER TABLE weekly_events ADD COLUMN has_time INTEGER NOT NULL DEFAULT 1");
 }
+if (!hasColumn("weekly_events", "max_players")) {
+  sqlite.exec("ALTER TABLE weekly_events ADD COLUMN max_players INTEGER");
+}
+if (!hasColumn("weekly_events", "payment_requested_at")) {
+  sqlite.exec("ALTER TABLE weekly_events ADD COLUMN payment_requested_at INTEGER");
+}
+if (!hasColumn("ledger_entries", "claimed_at")) {
+  sqlite.exec("ALTER TABLE ledger_entries ADD COLUMN claimed_at INTEGER");
+}
+if (!hasColumn("ledger_entries", "season_id")) {
+  sqlite.exec("ALTER TABLE ledger_entries ADD COLUMN season_id TEXT");
+}
 if (!hasColumn("seasons", "occasional_price_cents")) {
   sqlite.exec("ALTER TABLE seasons ADD COLUMN occasional_price_cents INTEGER");
+}
+if (!hasColumn("seasons", "occasional_premium_percent")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN occasional_premium_percent INTEGER");
+}
+if (!hasColumn("seasons", "prepaid_session_count")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN prepaid_session_count INTEGER");
+}
+if (!hasColumn("seasons", "payment_info")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN payment_info TEXT");
+}
+if (!hasColumn("seasons", "collector_user_id")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN collector_user_id TEXT");
+}
+if (!hasColumn("seasons", "payment_requested_at")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN payment_requested_at INTEGER");
+}
+if (!hasColumn("invitations", "payment_info")) {
+  sqlite.exec("ALTER TABLE invitations ADD COLUMN payment_info TEXT");
 }
 if (!hasColumn("seasons", "duration_minutes")) {
   sqlite.exec("ALTER TABLE seasons ADD COLUMN duration_minutes INTEGER");
@@ -463,12 +505,18 @@ if (!hasColumn("memberships", "ledger_accepted_at")) {
 if (!hasColumn("users", "platform_role")) {
   sqlite.exec("ALTER TABLE users ADD COLUMN platform_role TEXT");
 }
+if (!hasColumn("users", "payment_info")) {
+  sqlite.exec("ALTER TABLE users ADD COLUMN payment_info TEXT");
+}
 if (!hasColumn("event_guests", "status")) {
   sqlite.exec("ALTER TABLE event_guests ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
   sqlite.exec("UPDATE event_guests SET status = 'approved'");
 }
 if (!hasColumn("season_signups", "intent")) {
   sqlite.exec("ALTER TABLE season_signups ADD COLUMN intent TEXT NOT NULL DEFAULT 'agree'");
+}
+if (!hasColumn("seasons", "home_visible_weeks")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN home_visible_weeks INTEGER NOT NULL DEFAULT 4");
 }
 sqlite.exec(`
   UPDATE seasons SET status = 'locked'
@@ -501,6 +549,27 @@ CREATE TABLE IF NOT EXISTS support_messages (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS support_messages_ticket_idx ON support_messages(ticket_id, created_at);
+`);
+
+sqlite.exec(`
+CREATE TABLE IF NOT EXISTS payment_methods (
+  id TEXT PRIMARY KEY,
+  community_id TEXT NOT NULL REFERENCES communities(id),
+  label TEXT NOT NULL,
+  details TEXT NOT NULL,
+  created_by_id TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payment_methods_community_idx ON payment_methods(community_id);
+
+CREATE TABLE IF NOT EXISTS event_waitlist (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES weekly_events(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS event_waitlist_event_user_uidx ON event_waitlist(event_id, user_id);
+CREATE INDEX IF NOT EXISTS event_waitlist_event_idx ON event_waitlist(event_id, created_at);
 `);
 
 sqlite.exec(`

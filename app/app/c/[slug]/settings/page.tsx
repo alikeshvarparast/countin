@@ -1,7 +1,8 @@
-import { desc, eq } from "drizzle-orm";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isOwner, isStaff } from "@/lib/access";
+import { AdminLogList } from "@/components/admin-log-list";
 import { CommunityUid } from "@/components/community-uid";
 import { InviteShare } from "@/components/invite-share";
 import { PhotoPicker } from "@/components/photo-picker";
@@ -9,10 +10,10 @@ import { SettingsEditor } from "@/components/settings-editor";
 import { Avatar } from "@/components/avatar";
 import { updateCommunityPhoto } from "@/lib/actions/community";
 import { Card } from "@/components/ui";
+import { listCommunityLogs } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { auditLogs, users } from "@/lib/db/schema";
+import { users } from "@/lib/db/schema";
 import { getAppOrigin } from "@/lib/origin";
-import { formatWhen } from "@/lib/utils";
 
 export default async function SettingsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -25,15 +26,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
   const staff = isStaff(community.id, userId);
   const origin = await getAppOrigin();
   const inviteUrl = `${origin}/join/${community.inviteToken}`;
-  const logs = owner
-    ? db
-        .select()
-        .from(auditLogs)
-        .where(eq(auditLogs.communityId, community.id))
-        .orderBy(desc(auditLogs.createdAt))
-        .all()
-        .slice(0, 40)
-    : [];
+  const logs = owner ? listCommunityLogs(community.id, { limit: 5, timeZone: community.timezone }) : [];
   const people = owner ? db.select().from(users).all() : [];
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
 
@@ -113,16 +106,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
       {owner && (
         <Card>
           <h2 className="font-display text-lg">Admin log</h2>
-          <ul className="mt-4 space-y-3 text-sm">
-            {logs.length === 0 && <li className="text-ink/50">No actions yet.</li>}
-            {logs.map((log) => (
-              <li key={log.id}>
-                <span className="text-ink/40">{formatWhen(log.createdAt, community.timezone)}</span>
-                <br />
-                {nameOf(log.actorId)} · {log.action}
-              </li>
-            ))}
-          </ul>
+          <AdminLogList logs={logs} timezone={community.timezone} nameOf={nameOf} />
+          <Link href={`/app/c/${slug}/settings/log`} className="mt-4 inline-block text-sm text-primary">
+            See more →
+          </Link>
         </Card>
       )}
     </div>

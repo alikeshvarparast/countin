@@ -30,7 +30,7 @@ import { createId, now } from "@/lib/id";
 import { goingHeadcount, notifyCollector, syncWeeklyShares, attendanceShares, splitCents } from "@/lib/ledger";
 import { currentEventVotes, logVote } from "@/lib/votes";
 import { notify, notifyMany } from "@/lib/notify";
-import { eventStartFromParts, localInputToMs, parseDurationMinutes, sessionSlotIsGoing } from "@/lib/utils";
+import { eventStartFromParts, formatMoney, localInputToMs, parseDurationMinutes, sessionSlotIsGoing } from "@/lib/utils";
 
 function goingCount(eventId: string) {
   return goingHeadcount(eventId);
@@ -68,9 +68,15 @@ export async function createWeeklyEvent(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim() || community.location || "";
   const minPlayers = Number(formData.get("minPlayers") ?? 10);
+  const maxRaw = String(formData.get("maxPlayers") ?? "").trim();
+  const maxPlayers = maxRaw ? Number(maxRaw) : null;
+  const paymentMode = String(formData.get("paymentMode") ?? "postpay") === "prepaid" ? "prepaid" : "postpay";
   const usePoll = String(formData.get("usePoll") ?? "") === "on";
   if (title.length < 2) return { error: "Give the event a title." };
   if (!Number.isFinite(minPlayers) || minPlayers < 2) return { error: "Minimum players must be at least 2." };
+  if (maxPlayers != null && (!Number.isFinite(maxPlayers) || maxPlayers < minPlayers)) {
+    return { error: "Maximum must be at least the minimum." };
+  }
 
   const durationMinutes = parseDurationMinutes(formData.get("durationHours"), formData.get("durationMinutes"));
   if (durationMinutes == null) return { error: "Set how long the session lasts." };
@@ -78,11 +84,12 @@ export async function createWeeklyEvent(formData: FormData) {
   const id = createId();
   const t = now();
   const paymentFields = {
-    paymentMode: "postpay" as const,
+    paymentMode: paymentMode as "postpay" | "prepaid",
     paymentInfo: null,
     collectorUserId: user.id,
     totalCostCents: null,
     durationMinutes,
+    maxPlayers,
   };
 
   if (usePoll) {
@@ -289,29 +296,83 @@ export async function setRsvp(formData: FormData) {
   const user = await requireUser();
   const eventId = String(formData.get("eventId") ?? "");
   const status = String(formData.get("status") ?? "");
-  if (status !== "going" && status !== "not_going") return { error: "Pick going or not going." };
+  if (status !== "going" && status !== "not_going" && status !== "waitlist") {
+    return { error: "Pick going or not going." };
+  }
   const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
   if (!event) return { error: "Event not found." };
   requireActiveMember(event.communityId, user.id);
   if (!["open", "ready_to_book", "booked"].includes(event.status)) {
     return { error: "RSVP is not open." };
   }
-  if (event.rsvpDeadlineAt && now() > event.rsvpDeadlineAt) {
+  const staff = isStaff(event.communityId, user.id);
+  if (!staff && event.rsvpDeadlineAt && now() > event.rsvpDeadlineAt) {
     return { error: "The presence deadline has passed." };
   }
+
+  const { eventWaitlist } = await import("@/lib/db/schema");
+  const t = now();
+  const existingWait = db
+    .select()
+    .from(eventWaitlist)
+    .where(and(eq(eventWaitlist.eventId, eventId), eq(eventWaitlist.userId, user.id)))
+    .get();
+
+  if (status === "waitlist") {
+    const existing = db
+      .select()
+      .from(rsvps)
+      .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, user.id)))
+      .get();
+    if (existing) db.delete(rsvps).where(eq(rsvps.id, existing.id)).run();
+    if (!existingWait) {
+      db.insert(eventWaitlist)
+        .values({ id: createId(), eventId, userId: user.id, createdAt: t })
+        .run();
+    }
+    const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+    revalidatePath(`/app/c/${community?.slug}`);
+    revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
+    return { ok: true };
+  }
+
+  if (status === "going" && event.maxPlayers != null) {
+    const currentGoing = goingHeadcount(eventId);
+    const alreadyGoing = db
+      .select()
+      .from(rsvps)
+      .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, user.id), eq(rsvps.status, "going")))
+      .get();
+    if (!alreadyGoing && currentGoing >= event.maxPlayers) {
+      if (!existingWait) {
+        db.insert(eventWaitlist)
+          .values({ id: createId(), eventId, userId: user.id, createdAt: t })
+          .run();
+      }
+      const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+      revalidatePath(`/app/c/${community?.slug}`);
+      revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
+      return { ok: true, waitlisted: true };
+    }
+  }
+
+  if (existingWait) db.delete(eventWaitlist).where(eq(eventWaitlist.id, existingWait.id)).run();
 
   const existing = db
     .select()
     .from(rsvps)
     .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, user.id)))
     .get();
-  const t = now();
   if (existing) {
     db.update(rsvps).set({ status, updatedAt: t }).where(eq(rsvps.id, existing.id)).run();
   } else {
     db.insert(rsvps)
       .values({ id: createId(), eventId, userId: user.id, status, updatedAt: t })
       .run();
+  }
+
+  if (status === "not_going" && event.maxPlayers != null) {
+    await promoteFromWaitlist(eventId);
   }
 
   const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
@@ -323,6 +384,45 @@ export async function setRsvp(formData: FormData) {
   revalidatePath(`/app/c/${community?.slug}`);
   revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
   return { ok: true };
+}
+
+async function promoteFromWaitlist(eventId: string) {
+  const { eventWaitlist } = await import("@/lib/db/schema");
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
+  if (!event?.maxPlayers) return;
+  if (goingHeadcount(eventId) >= event.maxPlayers) return;
+  const next = db
+    .select()
+    .from(eventWaitlist)
+    .where(eq(eventWaitlist.eventId, eventId))
+    .all()
+    .sort((a, b) => a.createdAt - b.createdAt)[0];
+  if (!next) return;
+  const t = now();
+  db.delete(eventWaitlist).where(eq(eventWaitlist.id, next.id)).run();
+  const existing = db
+    .select()
+    .from(rsvps)
+    .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, next.userId)))
+    .get();
+  if (existing) {
+    db.update(rsvps).set({ status: "going", updatedAt: t }).where(eq(rsvps.id, existing.id)).run();
+  } else {
+    db.insert(rsvps)
+      .values({ id: createId(), eventId, userId: next.userId, status: "going", updatedAt: t })
+      .run();
+  }
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (community) {
+    await notify({
+      userId: next.userId,
+      communityId: community.id,
+      type: "waitlist_promoted",
+      title: `You're in · ${event.title}`,
+      body: `A spot opened. You are now marked Going.`,
+      href: `/app/c/${community.slug}/events/${event.id}`,
+    });
+  }
 }
 
 export async function confirmFieldBooked(eventId: string) {
@@ -400,50 +500,131 @@ export async function cancelWeeklyEvent(eventId: string) {
   redirect(`/app/c/${community.slug}`);
 }
 
-export async function postWeeklyCost(formData: FormData) {
+export async function saveEventCostSettings(formData: FormData) {
   const user = await requireUser();
   const eventId = String(formData.get("eventId") ?? "");
-  const amount = Number(formData.get("amount") ?? "");
-  const paymentInfo = String(formData.get("paymentInfo") ?? "").trim();
+  const amountRaw = String(formData.get("amount") ?? "").trim();
+  const collectorUserId = String(formData.get("collectorUserId") ?? "").trim();
+  const paymentMode = String(formData.get("paymentMode") ?? "") === "prepaid" ? "prepaid" : "postpay";
   const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
   if (!event) return { error: "Event not found." };
   requireAdmin(event.communityId, user.id);
-  if (event.totalCostCents != null && event.paymentMode === "prepaid") {
-    return { error: "Cost was already set for this pre-paid event." };
+  if (event.paymentRequestedAt) return { error: "Payment requests were already sent. Close or revise after settle." };
+
+  const members = listApprovedMembers(event.communityId);
+  const collector = members.find((m) => m.userId === collectorUserId);
+  if (!collector) return { error: "Pick a member to receive payments." };
+  const paymentInfo = collector.paymentInfo?.trim() ?? "";
+  if (!paymentInfo) {
+    return { error: `${collector.name} needs payment details on their profile before you can save.` };
   }
-  if (event.totalCostCents != null && event.status === "completed") return { error: "Cost was already posted." };
-  if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter the total cost." };
-
-  const { counts, units, going } = attendanceShares(eventId);
-  if (units === 0 || going.length === 0) return { error: "No one is marked present. Correct RSVPs first." };
-
-  const cents = Math.round(amount * 100);
-  const collectorId = event.collectorUserId ?? primaryAdminId(event.communityId);
-  const t = now();
+  let totalCostCents = event.totalCostCents;
+  if (amountRaw) {
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter a valid total cost." };
+    totalCostCents = Math.round(amount * 100);
+  }
 
   db.update(weeklyEvents)
     .set({
-      totalCostCents: cents,
-      status: "completed",
-      paymentInfo: paymentInfo || event.paymentInfo,
+      totalCostCents,
+      paymentInfo,
+      collectorUserId,
+      paymentMode: event.paymentRequestedAt ? event.paymentMode : paymentMode,
     })
     .where(eq(weeklyEvents.id, eventId))
     .run();
 
   const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
-  if (!community) return { error: "Community not found." };
+  if (community) {
+    audit({
+      communityId: community.id,
+      actorId: user.id,
+      action: "weekly.cost_save",
+      entityType: "weekly_event",
+      entityId: event.id,
+    });
+    revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+  }
+  return { ok: true };
+}
 
-  const unitAmounts = splitCents(cents, units);
-  let cursor = 0;
-  for (const [userId, shareCount] of counts) {
-    const amountCents = unitAmounts.slice(cursor, cursor + shareCount).reduce((s, n) => s + n, 0);
-    cursor += shareCount;
+export async function sendWeeklyPaymentRequest(formData: FormData) {
+  const user = await requireUser();
+  const eventId = String(formData.get("eventId") ?? "");
+  const amount = Number(formData.get("amount") ?? "");
+  const collectorUserId = String(formData.get("collectorUserId") ?? "").trim();
+  const attendeeIds = formData
+    .getAll("attendeeId")
+    .map((v) => String(v))
+    .filter(Boolean);
+
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireAdmin(event.communityId, user.id);
+  if (event.paymentRequestedAt) return { error: "Payment requests were already sent." };
+  if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter the total cost." };
+
+  const members = listApprovedMembers(event.communityId);
+  const memberIds = new Set(members.map((m) => m.userId));
+  const collector = members.find((m) => m.userId === collectorUserId);
+  if (!collector || !memberIds.has(collectorUserId)) {
+    return { error: "Pick a member to receive payments." };
+  }
+  const paymentInfo = collector.paymentInfo?.trim() ?? "";
+  if (!paymentInfo) {
+    return { error: `${collector.name} needs payment details on their profile before you send requests.` };
+  }
+
+  let payerIds = attendeeIds.filter((id) => memberIds.has(id) && id !== collectorUserId);
+  if (payerIds.length === 0) {
+    const { going } = attendanceShares(eventId);
+    payerIds = going.map((g) => g.userId).filter((id) => id !== collectorUserId);
+  }
+  if (payerIds.length === 0) return { error: "Pick who should pay a share." };
+
+  // Ensure RSVPs for manually added attendees
+  const t = now();
+  for (const userId of payerIds) {
+    const existing = db
+      .select()
+      .from(rsvps)
+      .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, userId)))
+      .get();
+    if (!existing) {
+      db.insert(rsvps)
+        .values({ id: createId(), eventId, userId, status: "going", updatedAt: t })
+        .run();
+    } else if (existing.status !== "going") {
+      db.update(rsvps).set({ status: "going", updatedAt: t }).where(eq(rsvps.id, existing.id)).run();
+    }
+  }
+
+  const cents = Math.round(amount * 100);
+  const shares = splitCents(cents, payerIds.length);
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (!community) return { error: "Community not found." };
+  const collectorLabel = collector.name;
+
+  db.update(weeklyEvents)
+    .set({
+      totalCostCents: cents,
+      status: event.status === "polling" || event.status === "cancelled" ? event.status : event.status,
+      paymentInfo,
+      collectorUserId,
+      paymentRequestedAt: t,
+    })
+    .where(eq(weeklyEvents.id, eventId))
+    .run();
+
+  for (let i = 0; i < payerIds.length; i += 1) {
+    const amountCents = shares[i];
     db.insert(ledgerEntries)
       .values({
         id: createId(),
         communityId: community.id,
-        fromUserId: userId,
-        toUserId: collectorId,
+        fromUserId: payerIds[i],
+        toUserId: collectorUserId,
         amountCents,
         reason: "weekly_share",
         status: "pending",
@@ -451,74 +632,122 @@ export async function postWeeklyCost(formData: FormData) {
         createdAt: t,
       })
       .run();
+    await notify({
+      userId: payerIds[i],
+      communityId: community.id,
+      type: "cost_posted",
+      title: `Payment due · ${event.title}`,
+      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collectorLabel}. ${paymentInfo}`,
+      href: `/app/c/${community.slug}/ledger`,
+    });
   }
 
   audit({
     communityId: community.id,
     actorId: user.id,
-    action: "weekly.post_cost",
+    action: "weekly.payment_request",
     entityType: "weekly_event",
     entityId: event.id,
-    meta: { cents, attendees: units },
+    meta: { cents, attendees: payerIds.length },
   });
 
-  await notifyMany([...counts.keys()], {
+  await notify({
+    userId: collectorUserId,
     communityId: community.id,
-    type: "cost_posted",
-    title: `You owe a share · ${event.title}`,
-    body: `Cost is in for ${community.name}. Pay ${collectorNameSafe(collectorId)} and wait for confirmation.`,
+    type: "ledger_approval",
+    title: `Payments incoming · ${event.title}`,
+    body: `${payerIds.length} players were asked to pay. Verify each when you receive money.`,
     href: `/app/c/${community.slug}/ledger`,
   });
-  await notifyCollector(
-    community,
-    collectorId,
-    `Payments to verify · ${event.title}`,
-    `Shares are on the ledger. Mark each payment when it arrives.`,
-  );
 
   revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
   revalidatePath(`/app/c/${community.slug}/ledger`);
+  revalidatePath(`/app/c/${community.slug}`);
   return { ok: true };
+}
+
+export async function closeWeeklyEvent(eventId: string) {
+  const user = await requireUser();
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireAdmin(event.communityId, user.id);
+  if (event.status === "completed") return { error: "Already closed." };
+  if (event.status === "cancelled") return { error: "This event was cancelled." };
+
+  const { eventLedgerAllSettled } = await import("@/lib/ledger-status");
+  if (event.paymentRequestedAt && !eventLedgerAllSettled(event.id)) {
+    return { error: "Every share must be verified before you can close the event." };
+  }
+
+  db.update(weeklyEvents).set({ status: "completed" }).where(eq(weeklyEvents.id, eventId)).run();
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (!community) return { error: "Community not found." };
+  audit({
+    communityId: community.id,
+    actorId: user.id,
+    action: "weekly.close",
+    entityType: "weekly_event",
+    entityId: event.id,
+  });
+  revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+  revalidatePath(`/app/c/${community.slug}`);
+  return { ok: true };
+}
+
+/** @deprecated use sendWeeklyPaymentRequest */
+export async function postWeeklyCost(formData: FormData) {
+  return sendWeeklyPaymentRequest(formData);
 }
 
 function collectorNameSafe(userId: string) {
   return db.select().from(users).where(eq(users.id, userId)).get()?.name ?? "the collector";
 }
 
-export async function settleLedgerEntry(entryId: string) {
+export async function promoteWaitlistMember(formData: FormData) {
   const user = await requireUser();
-  const entry = db.select().from(ledgerEntries).where(eq(ledgerEntries.id, entryId)).get();
-  if (!entry) return { error: "Entry not found." };
-  const canSettle = isStaff(entry.communityId, user.id) || entry.toUserId === user.id;
-  if (!canSettle) return { error: "Only the collector or an admin can mark this paid." };
-  if (entry.status === "settled") return { error: "Already settled." };
-
-  db.update(ledgerEntries)
-    .set({ status: "settled", settledAt: now(), settledById: user.id })
-    .where(eq(ledgerEntries.id, entryId))
-    .run();
-
-  const community = db.select().from(communities).where(eq(communities.id, entry.communityId)).get();
-  if (!community) return { error: "Community not found." };
-
-  audit({
-    communityId: community.id,
-    actorId: user.id,
-    action: "ledger.settle",
-    entityType: "ledger_entry",
-    entityId: entry.id,
-  });
-
-  await notify({
-    userId: entry.fromUserId,
-    communityId: community.id,
-    type: "payment_settled",
-    title: `Payment recorded · ${community.name}`,
-    body: `A pending charge was marked paid.`,
-    href: `/app/c/${community.slug}/ledger`,
-  });
-
-  revalidatePath(`/app/c/${community.slug}/ledger`);
+  const eventId = String(formData.get("eventId") ?? "");
+  const waitlistUserId = String(formData.get("userId") ?? "");
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireAdmin(event.communityId, user.id);
+  const { eventWaitlist } = await import("@/lib/db/schema");
+  const row = db
+    .select()
+    .from(eventWaitlist)
+    .where(and(eq(eventWaitlist.eventId, eventId), eq(eventWaitlist.userId, waitlistUserId)))
+    .get();
+  if (!row) return { error: "Not on the waitlist." };
+  if (event.maxPlayers != null && goingHeadcount(eventId) >= event.maxPlayers) {
+    return { error: "The session is full. Free a Going spot first." };
+  }
+  const t = now();
+  db.delete(eventWaitlist).where(eq(eventWaitlist.id, row.id)).run();
+  const existing = db
+    .select()
+    .from(rsvps)
+    .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, waitlistUserId)))
+    .get();
+  if (existing) {
+    db.update(rsvps).set({ status: "going", updatedAt: t }).where(eq(rsvps.id, existing.id)).run();
+  } else {
+    db.insert(rsvps)
+      .values({ id: createId(), eventId, userId: waitlistUserId, status: "going", updatedAt: t })
+      .run();
+  }
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (community) {
+    await notify({
+      userId: waitlistUserId,
+      communityId: community.id,
+      type: "waitlist_promoted",
+      title: `You're in · ${event.title}`,
+      body: `An admin moved you from the waitlist to Going.`,
+      href: `/app/c/${community.slug}/events/${event.id}`,
+    });
+    await maybeReadyToBook(community, event.id);
+    revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+    revalidatePath(`/app/c/${community.slug}`);
+  }
   return { ok: true };
 }
 

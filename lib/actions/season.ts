@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, gte, gt } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/auth";
@@ -29,7 +29,7 @@ import {
 import { createId, now } from "@/lib/id";
 import { notify, notifyMany } from "@/lib/notify";
 import { eachSeasonDate, zonedDateTimeToUtcMs } from "@/lib/timezone";
-import { localInputToMs, parseDurationMinutes, formatEventWhen } from "@/lib/utils";
+import { formatMoney, localInputToMs, parseDurationMinutes, formatEventWhen } from "@/lib/utils";
 
 function communityPath(slug: string, rest = "") {
   return `/app/c/${slug}${rest}`;
@@ -65,6 +65,9 @@ export async function createSeason(formData: FormData) {
   const timeLocal = String(formData.get("timeLocal") ?? "");
   const durationMinutes = parseDurationMinutes(formData.get("durationHours"), formData.get("durationMinutes"));
   const minPlayers = Number(formData.get("minPlayers") ?? 10);
+  const homeVisibleWeeksRaw = Number(formData.get("homeVisibleWeeks") ?? 4);
+  const homeVisibleWeeks =
+    Number.isFinite(homeVisibleWeeksRaw) && homeVisibleWeeksRaw >= 1 ? Math.min(52, Math.round(homeVisibleWeeksRaw)) : 4;
   const weekdays = formData.getAll("weekday").map((v) => Number(v)).filter((n) => n >= 0 && n <= 6);
   const signupClosesAt = localInputToMs(String(formData.get("signupClosesAt") ?? ""));
 
@@ -93,6 +96,7 @@ export async function createSeason(formData: FormData) {
       durationMinutes,
       regularPriceCents: 0,
       occasionalPriceCents: null,
+      homeVisibleWeeks,
       minPlayers: Number.isFinite(minPlayers) ? minPlayers : 10,
       signupClosesAt,
       status: "signup",
@@ -131,21 +135,178 @@ export async function updateSeasonRates(formData: FormData) {
   if (!season) return { error: "Season not found." };
   requireAdmin(season.communityId, user.id);
   const regular = Number(formData.get("regularPrice") ?? "");
-  const occasional = Number(formData.get("occasionalPrice") ?? "");
+  const premiumPercent = Number(formData.get("occasionalPremiumPercent") ?? "");
+  const prepaidRaw = String(formData.get("prepaidSessionCount") ?? "").trim();
+  const prepaidSessionCount = prepaidRaw ? Number(prepaidRaw) : null;
+  const paymentInfo = String(formData.get("paymentInfo") ?? "").trim();
+  const collectorUserId = String(formData.get("collectorUserId") ?? "").trim() || user.id;
+  const homeWeeksRaw = Number(formData.get("homeVisibleWeeks") ?? season.homeVisibleWeeks ?? 4);
   if (!Number.isFinite(regular) || regular <= 0) return { error: "Set the contract session rate." };
-  if (!Number.isFinite(occasional) || occasional <= 0) return { error: "Set the occasional rate." };
+  if (!Number.isFinite(premiumPercent) || premiumPercent < 0) {
+    return { error: "Set the occasional premium percent (0 or more)." };
+  }
+  if (prepaidSessionCount != null && (!Number.isFinite(prepaidSessionCount) || prepaidSessionCount < 1)) {
+    return { error: "Advance sessions must be at least 1." };
+  }
+  if (!Number.isFinite(homeWeeksRaw) || homeWeeksRaw < 1 || homeWeeksRaw > 52) {
+    return { error: "Home weeks must be between 1 and 52." };
+  }
+  const regularCents = Math.round(regular * 100);
+  const occasionalCents = Math.round(regularCents * (1 + premiumPercent / 100));
+  const homeVisibleWeeks = Math.round(homeWeeksRaw);
   db.update(seasons)
     .set({
-      regularPriceCents: Math.round(regular * 100),
-      occasionalPriceCents: Math.round(occasional * 100),
+      regularPriceCents: regularCents,
+      occasionalPriceCents: occasionalCents,
+      occasionalPremiumPercent: Math.round(premiumPercent),
+      prepaidSessionCount,
+      paymentInfo: paymentInfo || null,
+      collectorUserId,
+      homeVisibleWeeks,
     })
     .where(eq(seasons.id, seasonId))
     .run();
+
+  const updated = db.select().from(seasons).where(eq(seasons.id, seasonId)).get()!;
+  if (updated.paymentRequestedAt) {
+    syncSeasonPrepayLedger(updated);
+  }
+
+  audit({
+    communityId: season.communityId,
+    actorId: user.id,
+    action: "season.update_rates",
+    entityType: "season",
+    entityId: seasonId,
+  });
+
   const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
   if (community) {
     revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
     revalidatePath(communityPath(community.slug));
+    revalidatePath(communityPath(community.slug, "/ledger"));
   }
+  return { ok: true };
+}
+
+function seasonPrepayAmountCents(season: typeof seasons.$inferSelect) {
+  if (!season.regularPriceCents || !season.prepaidSessionCount) return null;
+  return season.regularPriceCents * season.prepaidSessionCount;
+}
+
+/** Keep pending/claimed season prepay rows aligned with current contract list and rates. */
+function syncSeasonPrepayLedger(season: typeof seasons.$inferSelect) {
+  if (!season.paymentRequestedAt) return;
+  const amountCents = seasonPrepayAmountCents(season);
+  if (amountCents == null) return;
+  const collectorId = season.collectorUserId ?? primaryAdminId(season.communityId);
+  const contractPlayers = db.select().from(contracts).where(eq(contracts.seasonId, season.id)).all();
+  const contractIds = new Set(contractPlayers.map((c) => c.userId));
+  const existing = db
+    .select()
+    .from(ledgerEntries)
+    .where(and(eq(ledgerEntries.seasonId, season.id), eq(ledgerEntries.reason, "contract_prepay")))
+    .all();
+
+  for (const row of existing) {
+    if (row.status === "settled") continue;
+    if (!contractIds.has(row.fromUserId) || row.fromUserId === collectorId) {
+      db.delete(ledgerEntries).where(eq(ledgerEntries.id, row.id)).run();
+      continue;
+    }
+    if (row.amountCents !== amountCents || row.toUserId !== collectorId) {
+      db.update(ledgerEntries)
+        .set({ amountCents, toUserId: collectorId })
+        .where(eq(ledgerEntries.id, row.id))
+        .run();
+    }
+  }
+
+  const openFrom = new Set(
+    existing
+      .filter((r) => r.status !== "settled" && contractIds.has(r.fromUserId))
+      .map((r) => r.fromUserId),
+  );
+  const settledFrom = new Set(existing.filter((r) => r.status === "settled").map((r) => r.fromUserId));
+  const t = now();
+  for (const row of contractPlayers) {
+    if (row.userId === collectorId) continue;
+    if (openFrom.has(row.userId) || settledFrom.has(row.userId)) continue;
+    db.insert(ledgerEntries)
+      .values({
+        id: createId(),
+        communityId: season.communityId,
+        fromUserId: row.userId,
+        toUserId: collectorId,
+        amountCents,
+        reason: "contract_prepay",
+        status: "pending",
+        seasonId: season.id,
+        createdAt: t,
+      })
+      .run();
+  }
+}
+
+export async function sendSeasonPaymentRequest(formData: FormData) {
+  const user = await requireUser();
+  const seasonId = String(formData.get("seasonId") ?? "");
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  if (season.paymentRequestedAt) return { error: "Payment requests were already sent." };
+  if (!season.regularPriceCents) return { error: "Set the contract rate first." };
+  if (!season.prepaidSessionCount) return { error: "Set how many sessions are paid in advance." };
+  if (!season.paymentInfo) return { error: "Add payment details first." };
+  const collectorId = season.collectorUserId ?? primaryAdminId(season.communityId);
+  const contractPlayers = db.select().from(contracts).where(eq(contracts.seasonId, seasonId)).all();
+  if (contractPlayers.length === 0) return { error: "No contract players yet." };
+
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (!community) return { error: "Community not found." };
+  const amountCents = season.regularPriceCents * season.prepaidSessionCount;
+  const collector =
+    db.select().from(users).where(eq(users.id, collectorId)).get()?.name ?? "the collector";
+  const t = now();
+
+  db.update(seasons).set({ paymentRequestedAt: t, collectorUserId: collectorId }).where(eq(seasons.id, seasonId)).run();
+
+  for (const row of contractPlayers) {
+    if (row.userId === collectorId) continue;
+    db.insert(ledgerEntries)
+      .values({
+        id: createId(),
+        communityId: community.id,
+        fromUserId: row.userId,
+        toUserId: collectorId,
+        amountCents,
+        reason: "contract_prepay",
+        status: "pending",
+        seasonId: season.id,
+        createdAt: t,
+      })
+      .run();
+    await notify({
+      userId: row.userId,
+      communityId: community.id,
+      type: "cost_posted",
+      title: `Season payment due · ${season.name}`,
+      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collector} for ${season.prepaidSessionCount} nights. ${season.paymentInfo}`,
+      href: communityPath(community.slug, "/ledger"),
+    });
+  }
+
+  audit({
+    communityId: community.id,
+    actorId: user.id,
+    action: "season.payment_request",
+    entityType: "season",
+    entityId: season.id,
+    meta: { amountCents, players: contractPlayers.length },
+  });
+
+  revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
+  revalidatePath(communityPath(community.slug, "/ledger"));
   return { ok: true };
 }
 
@@ -262,6 +423,34 @@ export async function closeSeasonSignup(seasonId: string) {
     );
     revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
     revalidatePath(communityPath(community.slug, "/seasons"));
+    revalidatePath(communityPath(community.slug));
+  }
+  return { ok: true };
+}
+
+export async function updateSeasonHomeWeeks(formData: FormData) {
+  const user = await requireUser();
+  const seasonId = String(formData.get("seasonId") ?? "");
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  const raw = Number(formData.get("homeVisibleWeeks") ?? "");
+  if (!Number.isFinite(raw) || raw < 1 || raw > 52) {
+    return { error: "Set how many weeks of nights to show on Home (1–52)." };
+  }
+  const homeVisibleWeeks = Math.round(raw);
+  db.update(seasons).set({ homeVisibleWeeks }).where(eq(seasons.id, seasonId)).run();
+  audit({
+    communityId: season.communityId,
+    actorId: user.id,
+    action: "season.home_weeks",
+    entityType: "season",
+    entityId: seasonId,
+    meta: { homeVisibleWeeks },
+  });
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) {
+    revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
     revalidatePath(communityPath(community.slug));
   }
   return { ok: true };
@@ -427,8 +616,8 @@ export async function agreeToSeason(seasonId: string) {
 export async function addContract(formData: FormData) {
   const user = await requireUser();
   const seasonId = String(formData.get("seasonId") ?? "");
+  const userId = String(formData.get("userId") ?? "").trim();
   const email = String(formData.get("email") ?? "").toLowerCase().trim();
-  const prepaid = String(formData.get("prepaid") ?? "on") === "on";
   const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
   if (!season) return { error: "Season not found." };
   requireAdmin(season.communityId, user.id);
@@ -437,8 +626,12 @@ export async function addContract(formData: FormData) {
   }
   if (season.status === "cancelled") return { error: "This season was cancelled." };
 
-  const target = db.select().from(users).where(eq(users.email, email)).get();
-  if (!target) return { error: "No account with that email." };
+  const target = userId
+    ? db.select().from(users).where(eq(users.id, userId)).get()
+    : email
+      ? db.select().from(users).where(eq(users.email, email)).get()
+      : undefined;
+  if (!target) return { error: "Pick a club member to add." };
   requireMember(season.communityId, target.id);
   if (hasContract(seasonId, target.id)) return { error: "They already have a contract." };
 
@@ -448,7 +641,7 @@ export async function addContract(formData: FormData) {
       id: createId(),
       seasonId,
       userId: target.id,
-      prepaid,
+      prepaid: true,
       createdAt: t,
     })
     .run();
@@ -457,7 +650,8 @@ export async function addContract(formData: FormData) {
     .select()
     .from(seasonSessions)
     .where(and(eq(seasonSessions.seasonId, seasonId), gte(seasonSessions.startsAt, t)))
-    .all();
+    .all()
+    .filter((s) => s.status !== "cancelled");
 
   for (const session of future) {
     const existing = db
@@ -465,7 +659,13 @@ export async function addContract(formData: FormData) {
       .from(sessionSlots)
       .where(and(eq(sessionSlots.sessionId, session.id), eq(sessionSlots.userId, target.id)))
       .get();
-    if (existing) continue;
+    if (existing) {
+      db.update(sessionSlots)
+        .set({ kind: "contract", status: "contract_present", updatedAt: t })
+        .where(eq(sessionSlots.id, existing.id))
+        .run();
+      continue;
+    }
     db.insert(sessionSlots)
       .values({
         id: createId(),
@@ -479,25 +679,11 @@ export async function addContract(formData: FormData) {
       .run();
   }
 
+  const refreshed = db.select().from(seasons).where(eq(seasons.id, seasonId)).get()!;
+  syncSeasonPrepayLedger(refreshed);
+
   const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
   if (!community) return { error: "Community not found." };
-  const adminId = primaryAdminId(community.id);
-  const sessionCount = db.select().from(seasonSessions).where(eq(seasonSessions.seasonId, seasonId)).all().length;
-  if (prepaid && sessionCount > 0) {
-    if (!season.regularPriceCents) return { error: "Set the contract session rate before adding a prepaid player." };
-    db.insert(ledgerEntries)
-      .values({
-        id: createId(),
-        communityId: community.id,
-        fromUserId: target.id,
-        toUserId: adminId,
-        amountCents: season.regularPriceCents * sessionCount,
-        reason: "contract_prepay",
-        status: "pending",
-        createdAt: t,
-      })
-      .run();
-  }
 
   audit({
     communityId: community.id,
@@ -505,7 +691,7 @@ export async function addContract(formData: FormData) {
     action: "season.add_contract",
     entityType: "contract",
     entityId: target.id,
-    meta: { seasonId, prepaid, sessionCount },
+    meta: { seasonId },
   });
 
   await notify({
@@ -513,12 +699,169 @@ export async function addContract(formData: FormData) {
     communityId: community.id,
     type: "contract_added",
     title: `Contract · ${season.name}`,
-    body: `You are on the prepaid list and will be marked present each session.`,
+    body: `You are on this season's contract list.`,
     href: communityPath(community.slug, `/seasons/${season.id}`),
   });
 
   revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
   revalidatePath(communityPath(community.slug, "/ledger"));
+  revalidatePath(communityPath(community.slug));
+  return { ok: true };
+}
+
+export async function removeContract(formData: FormData) {
+  const user = await requireUser();
+  const seasonId = String(formData.get("seasonId") ?? "");
+  const userId = String(formData.get("userId") ?? "").trim();
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  if (season.status === "signup" || season.status === "cancelled") {
+    return { error: "Cannot change contracts in this state." };
+  }
+
+  const existing = db
+    .select()
+    .from(contracts)
+    .where(and(eq(contracts.seasonId, seasonId), eq(contracts.userId, userId)))
+    .get();
+  if (!existing) return { error: "They are not on this contract." };
+
+  const settled = db
+    .select()
+    .from(ledgerEntries)
+    .where(
+      and(
+        eq(ledgerEntries.seasonId, seasonId),
+        eq(ledgerEntries.reason, "contract_prepay"),
+        eq(ledgerEntries.fromUserId, userId),
+        eq(ledgerEntries.status, "settled"),
+      ),
+    )
+    .get();
+  if (settled) {
+    return { error: "Their season payment is already settled. Replace them instead of removing." };
+  }
+
+  const t = now();
+  db.delete(contracts).where(eq(contracts.id, existing.id)).run();
+
+  const future = db
+    .select()
+    .from(seasonSessions)
+    .where(and(eq(seasonSessions.seasonId, seasonId), gte(seasonSessions.startsAt, t)))
+    .all()
+    .filter((s) => s.status !== "cancelled");
+  for (const session of future) {
+    const slot = db
+      .select()
+      .from(sessionSlots)
+      .where(and(eq(sessionSlots.sessionId, session.id), eq(sessionSlots.userId, userId)))
+      .get();
+    if (slot && slot.kind === "contract") {
+      db.delete(sessionSlots).where(eq(sessionSlots.id, slot.id)).run();
+    }
+  }
+
+  const refreshed = db.select().from(seasons).where(eq(seasons.id, seasonId)).get()!;
+  syncSeasonPrepayLedger(refreshed);
+
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) {
+    audit({
+      communityId: community.id,
+      actorId: user.id,
+      action: "season.remove_contract",
+      entityType: "contract",
+      entityId: userId,
+      meta: { seasonId },
+    });
+    await notify({
+      userId,
+      communityId: community.id,
+      type: "contract_removed",
+      title: `Off contract · ${season.name}`,
+      body: `You were removed from this season's contract list. Outstanding season dues were updated on the ledger.`,
+      href: communityPath(community.slug, `/seasons/${season.id}`),
+    });
+    revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
+    revalidatePath(communityPath(community.slug, "/ledger"));
+    revalidatePath(communityPath(community.slug));
+  }
+  return { ok: true };
+}
+
+export async function replaceContractMember(formData: FormData) {
+  const user = await requireUser();
+  const seasonId = String(formData.get("seasonId") ?? "");
+  const fromUserId = String(formData.get("fromUserId") ?? "").trim();
+  const toUserId = String(formData.get("toUserId") ?? "").trim();
+  const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
+  if (season.status === "signup" || season.status === "cancelled") {
+    return { error: "Cannot change contracts in this state." };
+  }
+  if (!fromUserId || !toUserId) return { error: "Pick who to replace and who takes their place." };
+  if (fromUserId === toUserId) return { error: "Pick a different member." };
+  requireMember(season.communityId, toUserId);
+  if (hasContract(seasonId, toUserId)) return { error: "That member is already on the contract." };
+
+  const result = transferRemainingContract(seasonId, fromUserId, toUserId, now());
+  if ("error" in result) return result;
+
+  // Move open prepay ledger rows to the replacement.
+  const openRows = db
+    .select()
+    .from(ledgerEntries)
+    .where(
+      and(
+        eq(ledgerEntries.seasonId, seasonId),
+        eq(ledgerEntries.reason, "contract_prepay"),
+        eq(ledgerEntries.fromUserId, fromUserId),
+      ),
+    )
+    .all()
+    .filter((r) => r.status === "pending" || r.status === "claimed");
+  for (const row of openRows) {
+    db.update(ledgerEntries).set({ fromUserId: toUserId }).where(eq(ledgerEntries.id, row.id)).run();
+  }
+
+  const refreshed = db.select().from(seasons).where(eq(seasons.id, seasonId)).get()!;
+  syncSeasonPrepayLedger(refreshed);
+
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  const fromName = db.select().from(users).where(eq(users.id, fromUserId)).get()?.name ?? "Member";
+  const toName = db.select().from(users).where(eq(users.id, toUserId)).get()?.name ?? "Member";
+  if (community) {
+    audit({
+      communityId: community.id,
+      actorId: user.id,
+      action: "season.replace_contract",
+      entityType: "contract",
+      entityId: toUserId,
+      meta: { seasonId, fromUserId, toUserId },
+    });
+    await notify({
+      userId: fromUserId,
+      communityId: community.id,
+      type: "contract_replaced",
+      title: `Contract transferred · ${season.name}`,
+      body: `Your contract place was given to ${toName}.`,
+      href: communityPath(community.slug, `/seasons/${season.id}`),
+    });
+    await notify({
+      userId: toUserId,
+      communityId: community.id,
+      type: "contract_added",
+      title: `Contract · ${season.name}`,
+      body: `You took ${fromName}'s contract place. Check the ledger for any season dues.`,
+      href: communityPath(community.slug, `/seasons/${season.id}`),
+    });
+    revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
+    revalidatePath(communityPath(community.slug, "/ledger"));
+    revalidatePath(communityPath(community.slug));
+  }
   return { ok: true };
 }
 
@@ -548,12 +891,13 @@ function transferRemainingContract(
     })
     .run();
 
-  const laterNights = db
+  const remainingNights = db
     .select()
     .from(seasonSessions)
-    .where(and(eq(seasonSessions.seasonId, seasonId), gt(seasonSessions.startsAt, fromStartsAt)))
+    .where(and(eq(seasonSessions.seasonId, seasonId), gte(seasonSessions.startsAt, fromStartsAt)))
     .all()
     .filter((row) => row.status !== "cancelled");
+  const laterNights = remainingNights.filter((row) => row.startsAt > fromStartsAt);
 
   for (const night of laterNights) {
     const fromSlot = db
@@ -588,7 +932,7 @@ function transferRemainingContract(
         .run();
     }
   }
-  return { ok: true as const };
+  return { ok: true as const, remainingNightCount: remainingNights.length, wasPrepaid: Boolean(existing.prepaid) };
 }
 
 export async function markContractAbsent(formData: FormData) {
@@ -597,6 +941,7 @@ export async function markContractAbsent(formData: FormData) {
   const inviteType = String(formData.get("inviteType") ?? "none");
   const inviteUserId = String(formData.get("inviteUserId") ?? "").trim();
   const inviteEmail = String(formData.get("inviteEmail") ?? "").toLowerCase().trim();
+  const paymentInfo = String(formData.get("paymentInfo") ?? "").trim();
   const session = db.select().from(seasonSessions).where(eq(seasonSessions.id, sessionId)).get();
   if (!session) return { error: "Session not found." };
   requireMember(session.communityId, user.id);
@@ -650,18 +995,20 @@ export async function markContractAbsent(formData: FormData) {
         type: inviteType,
         toUserId,
         status: "open",
+        paymentInfo: paymentInfo || null,
         createdAt: t,
       })
       .run();
 
     const nightLabel = formatEventWhen(session.startsAt, community.timezone, true, season.durationMinutes);
+    const payHint = paymentInfo ? ` Pay them via: ${paymentInfo}.` : "";
     if (inviteType === "private" && toUserId) {
       await notify({
         userId: toUserId,
         communityId: community.id,
         type: "private_invitation",
         title: `Private exchange · ${season.name}`,
-        body: `${user.name} asked you to take ${nightLabel}. You can cover that night only, or take over their remaining contract.`,
+        body: `${user.name} asked you to take ${nightLabel}. You can cover that night only, or take over their remaining contract.${payHint}`,
         href,
       });
       postClubChat(
@@ -674,7 +1021,7 @@ export async function markContractAbsent(formData: FormData) {
         communityId: community.id,
         type: "open_invitation",
         title: `Open exchange · ${season.name}`,
-        body: `${user.name} is looking for a replacement for ${nightLabel}. Cover that night only, or take over their remaining contract.`,
+        body: `${user.name} is looking for a replacement for ${nightLabel}. Cover that night only, or take over their remaining contract.${payHint}`,
         href,
       });
       postClubChat(
@@ -805,8 +1152,10 @@ export async function decideWaitlist(formData: FormData) {
     return { ok: true };
   }
 
-  if (decision !== "approved") return { error: "Invalid decision." };
-  if (!season.occasionalPriceCents) {
+  const premium =
+    season.occasionalPriceCents ??
+    Math.round(season.regularPriceCents * (1 + (season.occasionalPremiumPercent ?? 50) / 100));
+  if (!premium) {
     return { error: "Set the occasional rate before approving waitlist players." };
   }
 
@@ -816,13 +1165,13 @@ export async function decideWaitlist(formData: FormData) {
     .where(eq(sessionSlots.id, slotId))
     .run();
 
-  const premium = season.occasionalPriceCents;
+  const collectorId = season.collectorUserId ?? primaryAdminId(community.id);
   db.insert(ledgerEntries)
     .values({
       id: createId(),
       communityId: community.id,
       fromUserId: slot.userId,
-      toUserId: primaryAdminId(community.id),
+      toUserId: collectorId,
       amountCents: premium,
       reason: "occasional_fee",
       status: "pending",
@@ -839,12 +1188,13 @@ export async function decideWaitlist(formData: FormData) {
     entityId: slot.id,
   });
 
+  const collector = db.select().from(users).where(eq(users.id, collectorId)).get()?.name ?? "the collector";
   await notify({
     userId: slot.userId,
     communityId: community.id,
     type: "waitlist_approved",
     title: `You're in · ${season.name}`,
-    body: `Approved as occasional. Check the ledger for what you owe.`,
+    body: `Pay ${formatMoney(premium, community.currency)} to ${collector}${season.paymentInfo ? `. ${season.paymentInfo}` : ""}. Then mark I have paid on the ledger.`,
     href: communityPath(community.slug, "/ledger"),
   });
 
@@ -885,6 +1235,7 @@ export async function claimInvitation(formData: FormData) {
   if (!community || !season) return { error: "Season not found." };
   if (!season.regularPriceCents) return { error: "Set the contract session rate before filling replacements." };
 
+  let remainingNightCount = 1;
   if (mode === "contract") {
     const transferred = transferRemainingContract(
       session.seasonId,
@@ -893,7 +1244,17 @@ export async function claimInvitation(formData: FormData) {
       session.startsAt,
     );
     if ("error" in transferred) return transferred;
+    remainingNightCount = transferred.remainingNightCount;
   }
+
+  const amountCents = season.regularPriceCents * remainingNightCount;
+  const payee = db.select().from(users).where(eq(users.id, invitation.fromUserId)).get();
+  const payeeName = payee?.name ?? "the contract player";
+  const paymentHint =
+    invitation.paymentInfo?.trim() ||
+    (payee?.whatsappPhone ? `WhatsApp ${payee.whatsappPhone}` : null) ||
+    season.paymentInfo?.trim() ||
+    null;
 
   const t = now();
   db.update(invitations).set({ status: "claimed" }).where(eq(invitations.id, invitationId)).run();
@@ -916,10 +1277,11 @@ export async function claimInvitation(formData: FormData) {
       communityId: community.id,
       fromUserId: user.id,
       toUserId: invitation.fromUserId,
-      amountCents: season.regularPriceCents,
-      reason: "replacement_to_player",
+      amountCents,
+      reason: mode === "contract" ? "contract_takeover" : "replacement_to_player",
       status: "pending",
       sessionId: session.id,
+      seasonId: season.id,
       createdAt: t,
     })
     .run();
@@ -933,8 +1295,10 @@ export async function claimInvitation(formData: FormData) {
   });
 
   const nightLabel = formatEventWhen(session.startsAt, community.timezone, true, season.durationMinutes);
-  const fromUser = db.select().from(users).where(eq(users.id, invitation.fromUserId)).get();
-  const fromName = fromUser?.name ?? "the contract player";
+  const moneyLabel = formatMoney(amountCents, community.currency);
+  const payLine = paymentHint
+    ? `Pay ${moneyLabel} to ${payeeName}. ${paymentHint}`
+    : `Pay ${moneyLabel} to ${payeeName} (ask them how).`;
 
   await notify({
     userId: invitation.fromUserId,
@@ -943,8 +1307,17 @@ export async function claimInvitation(formData: FormData) {
     title: mode === "contract" ? `Contract taken over · ${season.name}` : `Replacement found · ${season.name}`,
     body:
       mode === "contract"
-        ? `${user.name} took over your remaining contract, starting with ${nightLabel}. That night is credited to you.`
-        : `${user.name} took ${nightLabel} at the regular rate. That payment is credited to you.`,
+        ? `${user.name} took over your remaining contract (${remainingNightCount} nights), starting with ${nightLabel}. They owe you ${moneyLabel}.`
+        : `${user.name} took ${nightLabel} at the regular rate. They owe you ${moneyLabel}.`,
+    href: communityPath(community.slug, "/ledger"),
+  });
+
+  await notify({
+    userId: user.id,
+    communityId: community.id,
+    type: "cost_posted",
+    title: mode === "contract" ? `Contract takeover payment · ${season.name}` : `Replacement payment · ${season.name}`,
+    body: `${payLine} Then mark I have paid on the ledger.`,
     href: communityPath(community.slug, "/ledger"),
   });
 
@@ -952,8 +1325,8 @@ export async function claimInvitation(formData: FormData) {
     community.id,
     user.id,
     mode === "contract"
-      ? `I took over ${fromName}'s contract on ${season.name}, starting ${nightLabel}.`
-      : `I took ${fromName}'s place for ${nightLabel} (${season.name}) this night only.`,
+      ? `I took over ${payeeName}'s contract on ${season.name}, starting ${nightLabel}.`
+      : `I took ${payeeName}'s place for ${nightLabel} (${season.name}) this night only.`,
   );
 
   revalidatePath(communityPath(community.slug, `/sessions/${session.id}`));

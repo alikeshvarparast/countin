@@ -4,6 +4,16 @@ export function isStandaloneDisplay() {
   return window.matchMedia("(display-mode: standalone)").matches || Boolean(nav.standalone);
 }
 
+export function installPlatform(): "ios" | "android" | "desktop" {
+  if (typeof window === "undefined") return "desktop";
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+    return "ios";
+  }
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
+}
+
 export function pushSupported() {
   return (
     typeof window !== "undefined" &&
@@ -21,9 +31,56 @@ export function urlBase64ToUint8Array(base64: string) {
   return output;
 }
 
-export async function registerPushWorker() {
-  if (!pushSupported()) return null;
+export async function registerAppWorker() {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
   return navigator.serviceWorker.register("/sw.js", { scope: "/" });
+}
+
+export async function registerPushWorker() {
+  return registerAppWorker();
+}
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
+let deferredInstall: BeforeInstallPromptEvent | null = null;
+
+function emitInstallable() {
+  window.dispatchEvent(new CustomEvent("countin:installable", { detail: Boolean(deferredInstall) }));
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstall = event as BeforeInstallPromptEvent;
+    emitInstallable();
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstall = null;
+    emitInstallable();
+  });
+}
+
+export function canPromptInstall() {
+  return Boolean(deferredInstall);
+}
+
+export function subscribeInstallPrompt(listener: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onChange = () => listener();
+  window.addEventListener("countin:installable", onChange);
+  return () => window.removeEventListener("countin:installable", onChange);
+}
+
+export async function promptInstall() {
+  if (!deferredInstall) return { outcome: "unavailable" as const };
+  await deferredInstall.prompt();
+  const { outcome } = await deferredInstall.userChoice;
+  deferredInstall = null;
+  emitInstallable();
+  return { outcome };
 }
 
 export async function syncAppBadge() {

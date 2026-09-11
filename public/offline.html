@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F4EFE8" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Offline · CountIn</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #f4efe8;
+        color: #3f3a34;
+        font-family: Outfit, "Helvetica Neue", system-ui, sans-serif;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+      }
+      main {
+        width: min(24rem, 100%);
+        text-align: center;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        border-radius: 22px;
+        background: #fffcf8;
+        object-fit: cover;
+      }
+      h1 {
+        margin: 1.25rem 0 0;
+        font-family: Fraunces, Georgia, serif;
+        font-size: 1.75rem;
+        font-weight: 560;
+      }
+      p {
+        margin: 0.75rem 0 0;
+        line-height: 1.5;
+        color: rgba(63, 58, 52, 0.68);
+      }
+      button {
+        margin-top: 1.5rem;
+        min-height: 44px;
+        padding: 0 1.25rem;
+        border: 0;
+        border-radius: 999px;
+        background: #3c8663;
+        color: #3f3a34;
+        font: inherit;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/logo.png" alt="" />
+      <h1>You're offline</h1>
+      <p>CountIn needs a connection to load clubs, chats, and RSVPs. Check your signal, then try again.</p>
+      <button type="button" onclick="location.href='/'">Try again</button>
+    </main>
+  </body>
+</html>

@@ -80,16 +80,17 @@ export async function sendDeadlineReminders() {
 
     if (
       event.paymentMode === "postpay" &&
-      event.totalCostCents == null &&
+      !event.paymentRequestedAt &&
       event.startsAt &&
       (eventWindowEnd(event) ?? event.startsAt) < t &&
       event.status !== "cancelled" &&
-      event.status !== "polling"
+      event.status !== "polling" &&
+      event.status !== "completed"
     ) {
       await remindOnce(event.id, "postpay_cost_due", listAdmins(community.id).map((a) => a.userId), {
         communityId: community.id,
-        title: `Post the cost · ${event.title}`,
-        body: `The session is over. Add the total and payment details so members can settle up.`,
+        title: `Close the event · ${event.title}`,
+        body: `The session is over. Open Cost, confirm who played, and send payment requests.`,
         href: `/app/c/${community.slug}/events/${event.id}`,
       });
     }

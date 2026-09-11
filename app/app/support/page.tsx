@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { auth } from "@/auth";
+import { withClubShell } from "@/components/club-shell";
 import { SupportForm } from "@/components/support-form";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -17,8 +18,8 @@ export default async function SupportPage() {
     .orderBy(desc(supportTickets.updatedAt))
     .all();
 
-  return (
-    <main className="mx-auto max-w-lg px-4 py-10">
+  const body = (
+    <main className="mx-auto w-full max-w-lg px-4 py-10 lg:px-0 lg:py-0">
       <h1 className="font-display text-2xl">Help</h1>
       <p className="mt-2 text-sm text-ink/50">Send feedback or ask for support. Replies show up on the ticket.</p>
       <Card className="mt-8">
@@ -34,11 +35,15 @@ export default async function SupportPage() {
                 <span className="font-medium">{row.subject}</span>
                 <span className="ml-2 text-ink/45">{formatWhen(row.updatedAt)}</span>
               </p>
-              <Badge tone={row.status === "closed" ? "line" : row.status === "open" ? "lime" : "clay"}>{row.status}</Badge>
+              <Badge tone={row.status === "closed" ? "line" : row.status === "open" ? "lime" : "clay"}>
+                {row.status}
+              </Badge>
             </Link>
           </li>
         ))}
       </ul>
     </main>
   );
+
+  return withClubShell(body);
 }

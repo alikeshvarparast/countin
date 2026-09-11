@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { markContractAbsent } from "@/lib/actions/season";
-import { Field, Select } from "@/components/ui";
+import { Field, Select, Textarea } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 
 export function AbsenceForm({
@@ -44,6 +44,11 @@ export function AbsenceForm({
               </option>
             ))}
           </Select>
+        </Field>
+      )}
+      {inviteType !== "none" && (
+        <Field label="How should they pay you?">
+          <Textarea name="paymentInfo" rows={2} placeholder="E-transfer to you@example.com" />
         </Field>
       )}
       <p className="text-sm text-ink/55">

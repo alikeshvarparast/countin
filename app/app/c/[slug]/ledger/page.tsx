@@ -2,13 +2,23 @@ import { desc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin } from "@/lib/access";
-import { settleLedgerEntry } from "@/lib/actions/weekly";
-import { SubmitButton } from "@/components/submit-button";
-import { Badge, Card } from "@/components/ui";
+import { LedgerEventGroup, type LedgerEntryView } from "@/components/ledger-event-group";
+import { LedgerTrackerNotice } from "@/components/ledger-tracker-notice";
+import { Card } from "@/components/ui";
 import { db } from "@/lib/db";
-import { ledgerEntries, users } from "@/lib/db/schema";
-import { formatMoney, formatWhen } from "@/lib/utils";
-import { LEDGER_DISCLAIMER } from "@/lib/ledger-copy";
+import { ledgerEntries, seasonSessions, seasons, users, weeklyEvents } from "@/lib/db/schema";
+import { formatEventWhen, formatMoney } from "@/lib/utils";
+
+type LedgerRow = typeof ledgerEntries.$inferSelect;
+
+type EventGroup = {
+  key: string;
+  title: string;
+  subtitle?: string;
+  href?: string;
+  sortAt: number;
+  rows: LedgerRow[];
+};
 
 export default async function LedgerPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -26,22 +36,134 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
   const people = db.select().from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
 
+  const events = db
+    .select()
+    .from(weeklyEvents)
+    .where(eq(weeklyEvents.communityId, community.id))
+    .all();
+  const eventOf = (id: string | null) => (id ? events.find((e) => e.id === id) : undefined);
+
+  const seasonRows = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
+  const seasonOf = (id: string | null) => (id ? seasonRows.find((s) => s.id === id) : undefined);
+
+  const sessions = db
+    .select()
+    .from(seasonSessions)
+    .where(eq(seasonSessions.communityId, community.id))
+    .all();
+  const sessionOf = (id: string | null) => (id ? sessions.find((s) => s.id === id) : undefined);
+
   const mine = rows.filter((r) => r.fromUserId === userId || r.toUserId === userId);
   const visible = admin ? rows : mine;
 
   const owed = mine
-    .filter((r) => r.status === "pending" && r.fromUserId === userId)
+    .filter((r) => (r.status === "pending" || r.status === "claimed") && r.fromUserId === userId)
     .reduce((s, r) => s + r.amountCents, 0);
   const dueToMe = mine
-    .filter((r) => r.status === "pending" && r.toUserId === userId)
+    .filter((r) => (r.status === "pending" || r.status === "claimed") && r.toUserId === userId)
     .reduce((s, r) => s + r.amountCents, 0);
+  const needsAction = mine.some(
+    (r) =>
+      (r.status === "pending" && r.fromUserId === userId) ||
+      (r.status === "claimed" && r.toUserId === userId),
+  );
+
+  const groups = new Map<string, EventGroup>();
+
+  function ensureGroup(group: Omit<EventGroup, "rows">) {
+    const existing = groups.get(group.key);
+    if (existing) return existing;
+    const created: EventGroup = { ...group, rows: [] };
+    groups.set(group.key, created);
+    return created;
+  }
+
+  for (const row of visible) {
+    if (row.weeklyEventId) {
+      const event = eventOf(row.weeklyEventId);
+      const title = event?.title ?? "Weekly event";
+      const when = event?.startsAt
+        ? formatEventWhen(event.startsAt, community.timezone, event.hasTime, event.durationMinutes)
+        : undefined;
+      ensureGroup({
+        key: `weekly:${row.weeklyEventId}`,
+        title,
+        subtitle: when,
+        href: `/app/c/${slug}/events/${row.weeklyEventId}`,
+        sortAt: event?.startsAt ?? row.createdAt,
+      }).rows.push(row);
+      continue;
+    }
+
+    if (row.sessionId) {
+      const sess = sessionOf(row.sessionId);
+      const season = sess ? seasonOf(sess.seasonId) : undefined;
+      const title = season?.name ?? "Season night";
+      const when = sess
+        ? formatEventWhen(sess.startsAt, community.timezone, true, season?.durationMinutes)
+        : undefined;
+      ensureGroup({
+        key: `session:${row.sessionId}`,
+        title,
+        subtitle: when ? `${when} · season session` : "Season session",
+        href: `/app/c/${slug}/sessions/${row.sessionId}`,
+        sortAt: sess?.startsAt ?? row.createdAt,
+      }).rows.push(row);
+      continue;
+    }
+
+    if (row.seasonId) {
+      const season = seasonOf(row.seasonId);
+      ensureGroup({
+        key: `season:${row.seasonId}`,
+        title: season?.name ?? "Season",
+        subtitle: "Season payment",
+        href: `/app/c/${slug}/seasons/${row.seasonId}`,
+        sortAt: season?.createdAt ?? row.createdAt,
+      }).rows.push(row);
+      continue;
+    }
+
+    ensureGroup({
+      key: "other",
+      title: "Other",
+      subtitle: "Not tied to an event",
+      sortAt: 0,
+    }).rows.push(row);
+  }
+
+  const grouped = [...groups.values()].sort((a, b) => {
+    if (a.key === "other") return 1;
+    if (b.key === "other") return -1;
+    return b.sortAt - a.sortAt;
+  });
+
+  function toViews(list: LedgerRow[]): LedgerEntryView[] {
+    return list.map((row) => ({
+      id: row.id,
+      fromName: nameOf(row.fromUserId),
+      toName: nameOf(row.toUserId),
+      amountCents: row.amountCents,
+      reason: row.reason,
+      status: row.status,
+      createdAt: row.createdAt,
+      canClaim: row.status === "pending" && row.fromUserId === userId,
+      canVerify: row.status === "claimed" && row.toUserId === userId,
+      verifyHint: row.status === "claimed" && row.toUserId === userId,
+    }));
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
-      <Card className="border-primary/30 bg-primary/10">
-        <p className="text-xs uppercase tracking-[0.2em] text-secondary">Credit tracker</p>
-        <p className="mt-2 text-sm text-ink/80">{LEDGER_DISCLAIMER}</p>
-      </Card>
+      <LedgerTrackerNotice />
+      {needsAction && (
+        <Card className="border-clay/40 bg-secondary/10">
+          <p className="text-sm font-medium text-ink">You have payments to handle.</p>
+          <p className="mt-1 text-sm text-ink/60">
+            Mark payments you sent, or verify money that arrived for you.
+          </p>
+        </Card>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Card className="overflow-hidden">
           <p className="text-xs uppercase tracking-wider text-cream/50">You owe</p>
@@ -53,42 +175,24 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
         </Card>
       </div>
       <Card>
-        <h2 className="font-display text-lg">Entries</h2>
+        <h2 className="font-display text-lg">Entries by event</h2>
         <p className="text-sm text-ink/50">
-          Mark a row verified when the person who is owed confirms they received the money. Unpaid rows stay on this list until someone marks them.
+          After you send money, tap I have paid. The collector then verifies they received it.
         </p>
-        <ul className="mt-4 space-y-3">
-          {visible.length === 0 && <li className="text-cream/50">Nothing on the ledger yet.</li>}
-          {visible.map((row) => (
-            <li key={row.id} className="flex items-center gap-3 border-b border-line py-2 last:border-b-0">
-              <p className="min-w-0 flex-1 truncate text-sm">
-                <span className="font-medium">
-                  {nameOf(row.fromUserId)} → {nameOf(row.toUserId)}
-                </span>
-                <span className="ml-2">{formatMoney(row.amountCents, community.currency)}</span>
-                <span className="ml-2 text-ink/45">
-                  {row.reason.replaceAll("_", " ")} · {formatWhen(row.createdAt, community.timezone)}
-                  {row.toUserId === userId && row.status === "pending" ? " · your payment to verify" : ""}
-                </span>
-              </p>
-              <div className="flex shrink-0 items-center gap-2">
-                <Badge tone={row.status === "settled" ? "lime" : "clay"}>{row.status}</Badge>
-                {row.status === "pending" && (admin || row.toUserId === userId) && (
-                  <form
-                    action={async () => {
-                      "use server";
-                      await settleLedgerEntry(row.id);
-                    }}
-                  >
-                    <SubmitButton variant="ghost" size="sm">
-                      {row.toUserId === userId ? "Verify" : "Paid"}
-                    </SubmitButton>
-                  </form>
-                )}
-              </div>
-            </li>
+        <div className="mt-4 space-y-6">
+          {grouped.length === 0 && <p className="text-cream/50">Nothing on the ledger yet.</p>}
+          {grouped.map((group) => (
+            <LedgerEventGroup
+              key={group.key}
+              title={group.title}
+              subtitle={group.subtitle}
+              href={group.href}
+              currency={community.currency}
+              timeZone={community.timezone}
+              entries={toViews(group.rows)}
+            />
           ))}
-        </ul>
+        </div>
       </Card>
     </div>
   );

@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { replyToTicket } from "@/lib/actions/support";
+import { withClubShell } from "@/components/club-shell";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, Card } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -23,13 +24,15 @@ export default async function SupportTicketPage({ params }: { params: Promise<{ 
     .all()
     .reverse();
 
-  return (
-    <main className="mx-auto max-w-lg space-y-6 px-4 py-10">
+  const body = (
+    <main className="mx-auto w-full max-w-lg space-y-6 px-4 py-10 lg:px-0 lg:py-0">
       <div>
         <p className="text-xs uppercase tracking-[0.18em] text-secondary">{ticket.category}</p>
         <h1 className="mt-1 font-display text-2xl">{ticket.subject}</h1>
         <div className="mt-2">
-          <Badge tone={ticket.status === "closed" ? "line" : ticket.status === "open" ? "lime" : "clay"}>{ticket.status}</Badge>
+          <Badge tone={ticket.status === "closed" ? "line" : ticket.status === "open" ? "lime" : "clay"}>
+            {ticket.status}
+          </Badge>
         </div>
       </div>
       <Card>
@@ -75,4 +78,6 @@ export default async function SupportTicketPage({ params }: { params: Promise<{ 
       )}
     </main>
   );
+
+  return withClubShell(body);
 }

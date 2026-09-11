@@ -4,6 +4,7 @@ import { getClubMembership, getCommunityBySlug } from "@/lib/access";
 import { countUnreadChat } from "@/lib/chat";
 import { ClubNav } from "@/components/club-nav";
 import { LedgerDisclaimer } from "@/components/ledger-disclaimer";
+import { countLedgerActions } from "@/lib/ledger-status";
 
 export default async function CommunityLayout({
   children,
@@ -20,11 +21,18 @@ export default async function CommunityLayout({
   const membership = getClubMembership(community.id, session.user.id);
   if (!membership) redirect(`/communities/${slug}`);
   const unreadChat = countUnreadChat(community.id, session.user.id);
+  const ledgerActions = countLedgerActions(community.id, session.user.id);
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col lg:flex-row">
-      <ClubNav slug={slug} name={community.name} imageUrl={community.imageUrl} unreadChat={unreadChat} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6">
+      <ClubNav
+        slug={slug}
+        name={community.name}
+        imageUrl={community.imageUrl}
+        unreadChat={unreadChat}
+        ledgerActions={ledgerActions}
+      />
+      <div className="pitch-wash flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6">
         <div className="flex min-h-0 w-full flex-1 flex-col">{children}</div>
       </div>
       <LedgerDisclaimer

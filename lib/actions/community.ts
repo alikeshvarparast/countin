@@ -521,6 +521,7 @@ export async function updateProfile(formData: FormData) {
     .trim()
     .replace(/^@/, "");
   const whatsappPhone = String(formData.get("whatsapp") ?? "").trim();
+  const paymentInfo = String(formData.get("paymentInfo") ?? "").trim();
   if (name.length < 2) return { error: "Enter your name." };
   if (telegramUsername.length < 3) return { error: "Enter a Telegram username or ID." };
 
@@ -540,6 +541,7 @@ export async function updateProfile(formData: FormData) {
       name,
       telegramUsername,
       whatsappPhone: whatsappPhone || null,
+      paymentInfo: paymentInfo || null,
       imageUrl,
       ...(telegramChanged ? { telegramChatId: null, telegramLinkToken: createId() } : {}),
     })

@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { DateTile } from "@/components/event-card";
+import { DateTile, statusBadgeTone } from "@/components/event-card";
 import { EventMenu } from "@/components/event-menu";
 import { PresenceVote } from "@/components/presence-vote";
 import { Badge } from "@/components/ui";
-import { formatEventTimeLine } from "@/lib/utils";
+import { cn, formatEventTimeLine } from "@/lib/utils";
 
 export function EventHomeCard({
   slug,
@@ -20,22 +20,17 @@ export function EventHomeCard({
   goingCount,
   notGoingCount,
   headcount,
-  minPlayers,
   myStatus,
   canVote,
   canAddGuest,
   isAdmin,
-  canPostCost,
   canBook,
   canCancel,
   lockOptions,
-  collectorName,
-  totalCostCents,
-  paymentInfo,
-  currency,
   guestCount,
   guests,
   pendingGuests = 0,
+  needsVote,
 }: {
   slug: string;
   eventId: string;
@@ -49,28 +44,31 @@ export function EventHomeCard({
   goingCount: number;
   notGoingCount: number;
   headcount: number;
-  minPlayers: number;
   myStatus?: string | null;
   canVote: boolean;
   canAddGuest: boolean;
   isAdmin?: boolean;
-  canPostCost: boolean;
   canBook: boolean;
   canCancel: boolean;
   lockOptions?: { id: string; label: string }[];
-  collectorName?: string;
-  totalCostCents?: number | null;
-  paymentInfo?: string | null;
-  currency: string;
   guestCount: number;
   guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
   pendingGuests?: number;
+  needsVote?: boolean;
 }) {
   const href = `/app/c/${slug}/events/${eventId}`;
   const requests = pendingGuests > 0 ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}` : "";
+  const highlight = Boolean(needsVote);
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-line bg-card px-3 py-3 shadow-[0_8px_24px_rgba(63,58,52,0.06)]">
+    <div
+      className={cn(
+        "motion-press flex h-full flex-col rounded-2xl border bg-card px-3 py-3 shadow-[0_8px_24px_rgba(63,58,52,0.06)]",
+        highlight
+          ? "border-warn/35 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.1)]"
+          : "border-line",
+      )}
+    >
       <div className="flex items-center gap-3">
         <DateTile ms={startsAt} timeZone={timeZone} compact />
         <div className="min-w-0 flex-1">
@@ -90,26 +88,19 @@ export function EventHomeCard({
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {requests ? <Badge tone="clay">{requests}</Badge> : null}
-              {status && <Badge>{status.replaceAll("_", " ")}</Badge>}
+              {status && <Badge tone={statusBadgeTone(status)}>{status.replaceAll("_", " ")}</Badge>}
               <EventMenu
                 slug={slug}
                 eventId={eventId}
-                title={title}
-                currency={currency}
                 canVote={canVote}
                 myStatus={myStatus}
                 canAddGuest={canAddGuest}
                 isAdmin={isAdmin}
-                canPostCost={canPostCost}
                 canBook={canBook}
                 canCancel={canCancel}
                 lockOptions={lockOptions}
-                collectorName={collectorName}
-                totalCostCents={totalCostCents}
-                paymentInfo={paymentInfo}
                 goingCount={goingCount}
                 notGoingCount={notGoingCount}
-                guestCount={guestCount}
                 guests={guests}
               />
             </div>

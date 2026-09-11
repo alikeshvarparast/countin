@@ -17,9 +17,10 @@ export function Button({
         "inline-flex items-center justify-center gap-2 rounded-full font-medium transition disabled:opacity-50",
         size === "md" && "min-h-11 px-4 py-2 text-sm",
         size === "sm" && "min-h-8 px-3 py-1 text-sm",
-        variant === "primary" && "bg-primary text-ink hover:bg-primary-2",
+        variant === "primary" &&
+          "bg-primary text-ink shadow-[0_6px_16px_rgba(47,107,79,0.22)] hover:bg-primary-2",
         variant === "cream" && "bg-secondary text-ink hover:opacity-90",
-        variant === "ghost" && "border border-line text-ink hover:bg-pitch-3",
+        variant === "ghost" && "border border-line text-ink hover:border-primary/35 hover:bg-pitch-3",
         variant === "danger" && "bg-secondary text-ink hover:opacity-90",
         className,
       )}
@@ -71,12 +72,14 @@ export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLab
 export function Card({
   className,
   children,
+  id,
 }: {
   className?: string;
   children: ReactNode;
+  id?: string;
 }) {
   return (
-    <div className={cn("rounded-2xl border border-line bg-card p-5", className)}>{children}</div>
+    <div id={id} className={cn("rounded-2xl border border-line bg-card p-5", className)}>{children}</div>
   );
 }
 

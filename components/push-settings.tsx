@@ -52,13 +52,13 @@ export function PushSettings({ enabled }: { enabled: boolean }) {
   return (
     <div className="space-y-3 text-sm text-cream/70">
       <p>
-        Add CountIn to your home screen, then turn on alerts. New messages, invitations, and inbox
-        updates will show as a notification, and the unread count appears on the app icon.
+        New messages, invitations, and inbox updates appear as a notification. The unread count
+        shows on the Home Screen icon.
       </p>
       {!standalone && (
         <p>
-          On iPhone, tap Share and then Add to Home Screen. Open the app from that icon before
-          enabling alerts. On Android, use the browser menu to install the app.
+          Open CountIn from the Home Screen icon first — see the steps in Home Screen app above —
+          then turn alerts on.
         </p>
       )}
       {supported === false && (

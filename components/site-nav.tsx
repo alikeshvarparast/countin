@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CircleHelp, LogIn, LogOut, Menu, Plus, Search, X } from "lucide-react";
+import { Bell, CircleHelp, LogIn, LogOut, Menu, Plus, Search, UserRound, X } from "lucide-react";
 import { logout } from "@/lib/actions/session";
 import { Avatar } from "@/components/avatar";
 
@@ -12,20 +12,36 @@ function inboxHref(pathname: string) {
   return match ? `/app/c/${match[1]}/notifications` : "/app/notifications";
 }
 
+export type SiteNavClub = {
+  slug: string;
+  name: string;
+  imageUrl?: string | null;
+};
+
 export function SiteNav({
   loggedIn,
   name,
   imageUrl,
   unread,
+  clubs = [],
+  hintedSlug = null,
 }: {
   loggedIn: boolean;
   name?: string | null;
   imageUrl?: string | null;
   unread: number;
+  clubs?: SiteNavClub[];
+  hintedSlug?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const inbox = inboxHref(pathname);
+  const pathSlug = pathname.match(/^\/app\/c\/([^/]+)/)?.[1];
+  const club =
+    (pathSlug && clubs.find((c) => c.slug === pathSlug)) ||
+    (hintedSlug && clubs.find((c) => c.slug === hintedSlug)) ||
+    clubs[0] ||
+    null;
 
   return (
     <>
@@ -55,9 +71,8 @@ export function SiteNav({
                 </span>
               )}
             </Link>
-            <Link href="/app/profile" className="flex max-w-44 items-center gap-2 text-ink/70 hover:text-ink">
-              <Avatar src={imageUrl} name={name || "Profile"} size="sm" />
-              <span className="truncate">{name}</span>
+            <Link href="/app/profile" className="text-ink/70 hover:text-ink" aria-label="Profile">
+              <UserRound className="h-5 w-5" />
             </Link>
             <form action={logout}>
               <button className="flex h-11 w-11 items-center justify-center text-ink/50 hover:text-ink" type="submit" aria-label="Sign out">
@@ -103,11 +118,35 @@ export function SiteNav({
       {open && (
         <div className="absolute inset-x-0 top-full z-30 border-b border-line bg-muted px-4 py-3 shadow-sm md:hidden">
           <div className="flex flex-col gap-1" onClick={() => setOpen(false)}>
-            <MobileLink href="/" icon={Search}>
-              Find clubs
-            </MobileLink>
+            {loggedIn && club && (
+              <Link
+                href={`/app/c/${club.slug}/settings`}
+                className="mb-1 flex items-center gap-3 rounded-3xl border border-primary/25 bg-card px-3 py-3 shadow-sm"
+              >
+                <Avatar src={club.imageUrl} name={club.name} size="md" />
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink">{club.name}</p>
+                  <p className="text-xs text-ink/50">Club profile</p>
+                </div>
+              </Link>
+            )}
+            {loggedIn && name && (
+              <Link
+                href="/app/profile"
+                className="mb-1 flex items-center gap-3 rounded-3xl border border-line bg-card px-3 py-3 shadow-sm"
+              >
+                <Avatar src={imageUrl} name={name} size="md" />
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink">{name}</p>
+                  <p className="text-xs text-ink/50">Your profile</p>
+                </div>
+              </Link>
+            )}
             {loggedIn ? (
               <>
+                <MobileLink href="/" icon={Search}>
+                  Find clubs
+                </MobileLink>
                 <MobileLink href="/app/communities/new" icon={Plus}>
                   New community
                 </MobileLink>
@@ -126,6 +165,9 @@ export function SiteNav({
               </>
             ) : (
               <>
+                <MobileLink href="/" icon={Search}>
+                  Find clubs
+                </MobileLink>
                 <MobileLink href="/login" icon={LogIn}>
                   Log in
                 </MobileLink>

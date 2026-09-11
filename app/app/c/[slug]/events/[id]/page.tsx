@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
+import { getCommunityBySlug, isAdmin, isStaff, isSuspended, listApprovedMembers } from "@/lib/access";
 import { PollCard } from "@/components/poll-card";
 import { EventMenu } from "@/components/event-menu";
+import { EventCostPanel } from "@/components/event-cost-panel";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
 import { PresenceVote } from "@/components/presence-vote";
@@ -11,10 +12,23 @@ import { Avatar } from "@/components/avatar";
 import { PageFrame } from "@/components/page-frame";
 import { Badge } from "@/components/ui";
 import { db } from "@/lib/db";
-import { eventGuests, pollOptions, polls, pollSuggestions, rsvps, users, votes, weeklyEvents } from "@/lib/db/schema";
-import { fieldBookedLabel, formatEventWhen, formatMoney, formatWhen } from "@/lib/utils";
+import {
+  eventGuests,
+  eventWaitlist,
+  pollOptions,
+  polls,
+  pollSuggestions,
+  rsvps,
+  users,
+  votes,
+  weeklyEvents,
+} from "@/lib/db/schema";
+import { eventWindowEnd, fieldBookedLabel, formatEventWhen, formatMoney, formatWhen } from "@/lib/utils";
 import { goingHeadcount } from "@/lib/ledger";
+import { eventLedgerAllSettled } from "@/lib/ledger-status";
 import { listVoteHistory } from "@/lib/votes";
+import { promoteWaitlistMember } from "@/lib/actions/weekly";
+import { SubmitButton } from "@/components/submit-button";
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -66,13 +80,23 @@ export default async function WeeklyEventPage({
   const headcount = goingHeadcount(event.id);
   const collector = event.collectorUserId ? nameOf(event.collectorUserId) : "the collector";
   const rsvpOpen = ["open", "ready_to_book", "booked"].includes(event.status);
-  const canVote = Boolean(userId && rsvpOpen && !deadlinePassed && !suspended);
+  const canVote = Boolean(userId && rsvpOpen && !suspended && (!deadlinePassed || admin));
   const canAddGuest = Boolean(myRsvp?.rsvp.status === "going" && !deadlinePassed && !suspended);
-  const canPostCost = Boolean(
-    admin && event.paymentMode === "postpay" && event.totalCostCents == null && event.status !== "cancelled" && event.status !== "polling",
-  );
   const canBook = Boolean(admin && ["open", "ready_to_book"].includes(event.status));
   const canCancel = Boolean(admin && event.status !== "cancelled");
+  const members = listApprovedMembers(community.id).map((m) => ({
+    userId: m.userId,
+    name: m.name,
+    paymentInfo: m.paymentInfo,
+  }));
+  const waitRows = db.select().from(eventWaitlist).where(eq(eventWaitlist.eventId, event.id)).all();
+  const ended = Boolean(event.startsAt && (eventWindowEnd(event) ?? event.startsAt) < Date.now());
+  const canSendPrepaid = Boolean(
+    admin && event.paymentMode === "prepaid" && ["booked", "ready_to_book"].includes(event.status),
+  );
+  const canSendPostpaid = Boolean(admin && (event.paymentMode !== "prepaid" ? ended || event.status === "booked" : false));
+  const allSettled = event.paymentRequestedAt ? eventLedgerAllSettled(event.id) : false;
+  const myWaitlisted = waitRows.some((w) => w.userId === userId);
   const suggestions = poll
     ? db
         .select()
@@ -112,22 +136,15 @@ export default async function WeeklyEventPage({
           <EventMenu
             slug={slug}
             eventId={event.id}
-            title={event.title}
-            currency={community.currency}
             canVote={canVote}
             myStatus={myRsvp?.rsvp.status}
             canAddGuest={canAddGuest}
             isAdmin={admin}
-            canPostCost={canPostCost}
             canBook={canBook}
             canCancel={canCancel}
             lockOptions={admin && event.status === "polling" ? options.map((o) => ({ id: o.id, label: o.label })) : undefined}
-            collectorName={collector}
-            totalCostCents={event.totalCostCents}
-            paymentInfo={event.paymentInfo}
             goingCount={going.length}
             notGoingCount={notGoing.length}
-            guestCount={approvedGuests.length}
             guests={guestItems}
             showDetails={false}
           />
@@ -175,15 +192,21 @@ export default async function WeeklyEventPage({
           </DetailRow>
           <DetailRow label="Field">{fieldBookedLabel(event.status)}</DetailRow>
           <DetailRow label="Minimum">{event.minPlayers} players</DetailRow>
+          {event.maxPlayers != null && <DetailRow label="Maximum">{event.maxPlayers} players</DetailRow>}
+          <DetailRow label="Payment">{event.paymentMode === "prepaid" ? "Pre-paid" : "Post-paid"}</DetailRow>
           <DetailRow label="Headcount">
             {headcount} going
             {approvedGuests.length > 0
               ? ` · ${going.length} player${going.length === 1 ? "" : "s"} · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}`
               : ""}
+            {waitRows.length > 0 ? ` · ${waitRows.length} waitlisted` : ""}
           </DetailRow>
           <DetailRow label="Collector">{collector}</DetailRow>
           <DetailRow label="Cost">
-            {event.totalCostCents != null ? formatMoney(event.totalCostCents, community.currency) : "Not posted yet"}
+            {event.totalCostCents != null
+              ? formatMoney(event.totalCostCents, community.currency)
+              : "Not set yet"}
+            {event.paymentRequestedAt ? " · requests sent" : ""}
           </DetailRow>
           {event.paymentInfo && <DetailRow label="Pay">{event.paymentInfo}</DetailRow>}
           {event.totalCostCents != null && (
@@ -194,6 +217,58 @@ export default async function WeeklyEventPage({
           )}
         </dl>
       </div>
+
+      {admin && event.status !== "polling" && event.status !== "cancelled" && (
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <EventCostPanel
+            eventId={event.id}
+            currency={community.currency}
+            paymentMode={event.paymentMode}
+            totalCostCents={event.totalCostCents}
+            collectorUserId={event.collectorUserId}
+            paymentRequestedAt={event.paymentRequestedAt}
+            status={event.status}
+            members={members}
+            initialAttendeeIds={going.map((g) => g.user.id)}
+            allSettled={allSettled}
+            canSendPrepaid={canSendPrepaid || (event.paymentMode === "prepaid" && event.status === "booked")}
+            canSendPostpaid={
+              event.paymentMode !== "prepaid" && (ended || ["booked", "ready_to_book", "open", "completed"].includes(event.status))
+            }
+          />
+        </div>
+      )}
+
+      {waitRows.length > 0 && (
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">Waitlist · {waitRows.length}</h3>
+          <ul className="mt-3 space-y-2 text-sm">
+            {waitRows
+              .sort((a, b) => a.createdAt - b.createdAt)
+              .map((w) => (
+                <li key={w.id} className="flex items-center justify-between gap-2">
+                  <span>{nameOf(w.userId)}</span>
+                  {admin && (
+                    <form
+                      action={async () => {
+                        "use server";
+                        const fd = new FormData();
+                        fd.set("eventId", event.id);
+                        fd.set("userId", w.userId);
+                        await promoteWaitlistMember(fd);
+                      }}
+                    >
+                      <SubmitButton size="sm" variant="ghost">
+                        Promote
+                      </SubmitButton>
+                    </form>
+                  )}
+                </li>
+              ))}
+          </ul>
+          {myWaitlisted && <p className="mt-2 text-sm text-ink/55">You are on the waitlist for this session.</p>}
+        </div>
+      )}
 
       <GuestWaitlist
         pending={pendingGuests.map((g) => ({
@@ -217,7 +292,7 @@ export default async function WeeklyEventPage({
             {approvedGuests.length > 0 ? ` · ${approvedGuests.length} guest${approvedGuests.length === 1 ? "" : "s"}` : ""}
             {" · "}
             {notGoing.length} not going
-            {deadlinePassed ? " · Presence is locked" : ""}
+            {deadlinePassed ? (admin ? " · Presence deadline passed (admins can still vote)" : " · Presence is locked") : ""}
             {pendingGuests.length > 0
               ? ` · ${pendingGuests.length} guest request${pendingGuests.length === 1 ? "" : "s"}`
               : ""}

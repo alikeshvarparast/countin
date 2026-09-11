@@ -3,6 +3,7 @@ import { Fraunces, Outfit } from "next/font/google";
 import localFont from "next/font/local";
 import { PwaShell } from "@/components/pwa-shell";
 import { APP_NAME } from "@/lib/brand";
+import { APPLE_SPLASH } from "@/lib/pwa-assets";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -41,7 +42,11 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: APP_NAME,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
+    startupImage: [...APPLE_SPLASH],
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
   },
   icons: {
     apple: "/icons/apple-touch-icon.png",
@@ -53,7 +58,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#F4EFE8",
+  themeColor: "#E8F0EA",
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

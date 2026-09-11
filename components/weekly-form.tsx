@@ -37,6 +37,15 @@ export function WeeklyEventForm({
       <Field label="Minimum players to book">
         <Input name="minPlayers" type="number" min={2} defaultValue={10} />
       </Field>
+      <Field label="Maximum players (waitlist after this)">
+        <Input name="maxPlayers" type="number" min={2} placeholder="Optional" />
+      </Field>
+      <Field label="Payment timing">
+        <Select name="paymentMode" defaultValue="postpay">
+          <option value="postpay">Post-paid — split after the session</option>
+          <option value="prepaid">Pre-paid — request payment after booking</option>
+        </Select>
+      </Field>
       <label className="flex items-center gap-2 text-sm text-ink/70">
         <input
           type="checkbox"

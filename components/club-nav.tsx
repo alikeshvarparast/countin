@@ -13,21 +13,25 @@ export function ClubNav({
   name,
   imageUrl,
   unreadChat = 0,
+  ledgerActions = 0,
 }: {
   slug: string;
   name: string;
   imageUrl?: string | null;
   unreadChat?: number;
+  ledgerActions?: number;
 }) {
   const pathname = usePathname();
   const base = `/app/c/${slug}`;
   const onChat = pathname.startsWith(`${base}/chat`);
+  const onLedger = pathname.startsWith(`${base}/ledger`);
   const chatBadge = onChat ? 0 : unreadChat;
+  const ledgerBadge = onLedger ? 0 : ledgerActions;
   const tabs = [
     { href: base, label: "Home", icon: Home, exact: true },
     { href: `${base}/chat`, label: "Chat", icon: MessageCircle, badge: chatBadge },
     { href: `${base}/members`, label: "Members", icon: Users },
-    { href: `${base}/ledger`, label: "Ledger", icon: Wallet },
+    { href: `${base}/ledger`, label: "Ledger", icon: Wallet, badge: ledgerBadge },
   ];
 
   useEffect(() => {
@@ -36,14 +40,15 @@ export function ClubNav({
 
   return (
     <>
-      <div className="sticky top-14 z-20 border-b border-line bg-muted px-4 py-2 sm:top-16 lg:sticky lg:top-16 lg:flex lg:h-[calc(100dvh-4rem)] lg:w-[4.5rem] lg:shrink-0 lg:flex-col lg:items-stretch lg:self-stretch lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-1 lg:py-3">
-        <div className="lg:hidden">
-          <ClubMark slug={slug} name={name} imageUrl={imageUrl} compact />
-        </div>
-        <div className="hidden lg:block">
-          <ClubMark slug={slug} name={name} imageUrl={imageUrl} />
-        </div>
-        <div className="mt-3 hidden flex-col gap-1 lg:flex">
+      <div className="sticky top-14 z-20 hidden border-b border-line bg-muted/95 px-1 py-3 backdrop-blur sm:top-16 lg:sticky lg:top-16 lg:flex lg:h-[calc(100dvh-4rem)] lg:w-[4.5rem] lg:shrink-0 lg:flex-col lg:items-stretch lg:self-stretch lg:overflow-y-auto lg:border-b-0 lg:border-r">
+        <Link
+          href={`/app/c/${slug}/settings`}
+          className="flex w-full flex-col items-center gap-1 rounded-xl border border-primary/20 bg-card px-1 py-1.5 text-center text-ink shadow-sm"
+        >
+          <Avatar src={imageUrl} name={name} size="xs" />
+          <p className="line-clamp-3 w-full text-[9px] font-medium leading-tight">{name}</p>
+        </Link>
+        <div className="mt-3 flex flex-col gap-1">
           {tabs.map((tab) => (
             <NavIcon
               key={tab.href}
@@ -53,7 +58,9 @@ export function ClubNav({
           ))}
         </div>
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-muted pb-[env(safe-area-inset-bottom)] lg:hidden">
+
+      {/* Mobile: bottom tabs only — club identity lives in the top header */}
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-muted/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="mx-auto grid max-w-lg grid-cols-4">
           {tabs.map((tab) => {
             const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
@@ -63,12 +70,12 @@ export function ClubNav({
                 key={tab.href}
                 href={tab.href}
                 className={cn(
-                  "flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-ink",
-                  active ? "bg-pitch-3" : "text-ink/60",
+                  "nav-tab-transition flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium",
+                  active ? "nav-active-pill text-ink" : "text-ink/55",
                 )}
               >
                 <span className="relative">
-                  <Icon className="h-5 w-5" />
+                  <Icon className={cn("h-5 w-5", active && "text-primary")} />
                   <UnreadBadge count={tab.badge} />
                 </span>
                 {tab.label}
@@ -78,37 +85,6 @@ export function ClubNav({
         </div>
       </nav>
     </>
-  );
-}
-
-function ClubMark({
-  slug,
-  name,
-  imageUrl,
-  compact,
-}: {
-  slug: string;
-  name: string;
-  imageUrl?: string | null;
-  compact?: boolean;
-}) {
-  if (compact) {
-    return (
-      <Link href={`/app/c/${slug}/settings`} className="flex min-w-0 flex-col items-center gap-1 text-ink">
-        <Avatar src={imageUrl} name={name} size="xs" />
-        <p className="line-clamp-2 max-w-[9rem] text-center text-[11px] font-medium leading-tight">{name}</p>
-      </Link>
-    );
-  }
-
-  return (
-    <Link
-      href={`/app/c/${slug}/settings`}
-      className="flex w-full flex-col items-center gap-1 rounded-lg border border-line bg-card px-1 py-1.5 text-center text-ink"
-    >
-      <Avatar src={imageUrl} name={name} size="xs" />
-      <p className="line-clamp-3 w-full text-[9px] font-medium leading-tight">{name}</p>
-    </Link>
   );
 }
 
@@ -129,12 +105,12 @@ function NavIcon({
     <Link
       href={href}
       className={cn(
-        "flex h-11 w-full flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-medium leading-tight text-ink",
-        active ? "bg-pitch-3" : "hover:bg-card",
+        "nav-tab-transition flex h-11 w-full flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-medium leading-tight",
+        active ? "nav-active-pill" : "text-ink/60 hover:bg-card",
       )}
     >
       <span className="relative">
-        <Icon className="h-4 w-4" />
+        <Icon className={cn("h-4 w-4", active && "text-primary")} />
         <UnreadBadge count={badge} />
       </span>
       {label}

@@ -16,7 +16,8 @@ export const users = sqliteTable("users", {
   telegramChatId: text("telegram_chat_id"),
   telegramLinkToken: text("telegram_link_token"),
   whatsappPhone: text("whatsapp_phone"),
-    imageUrl: text("image_url"),
+  paymentInfo: text("payment_info"),
+  imageUrl: text("image_url"),
     passwordResetToken: text("password_reset_token"),
     passwordResetExpires: integer("password_reset_expires"),
     platformRole: text("platform_role"),
@@ -162,12 +163,14 @@ export const weeklyEvents = sqliteTable(
     durationMinutes: integer("duration_minutes"),
     hasTime: integer("has_time", { mode: "boolean" }).notNull().default(true),
     minPlayers: integer("min_players").notNull().default(10),
+    maxPlayers: integer("max_players"),
     rsvpDeadlineAt: integer("rsvp_deadline_at"),
     status: text("status").notNull().default("open"),
     totalCostCents: integer("total_cost_cents"),
     paymentMode: text("payment_mode").notNull().default("postpay"),
     paymentInfo: text("payment_info"),
     collectorUserId: text("collector_user_id").references(() => users.id),
+    paymentRequestedAt: integer("payment_requested_at"),
     createdById: text("created_by_id")
       .notNull()
       .references(() => users.id),
@@ -247,6 +250,13 @@ export const seasons = sqliteTable(
     durationMinutes: integer("duration_minutes"),
     regularPriceCents: integer("regular_price_cents").notNull().default(0),
     occasionalPriceCents: integer("occasional_price_cents"),
+    occasionalPremiumPercent: integer("occasional_premium_percent"),
+    prepaidSessionCount: integer("prepaid_session_count"),
+    paymentInfo: text("payment_info"),
+    collectorUserId: text("collector_user_id").references(() => users.id),
+    paymentRequestedAt: integer("payment_requested_at"),
+    /** How many weeks ahead season nights appear on Home (Upcoming / Future). */
+    homeVisibleWeeks: integer("home_visible_weeks").notNull().default(4),
     minPlayers: integer("min_players").notNull().default(10),
     signupClosesAt: integer("signup_closes_at"),
     status: text("status").notNull().default("signup"), // signup | agreed | locked | cancelled
@@ -342,6 +352,7 @@ export const invitations = sqliteTable(
     type: text("type").notNull(),
     toUserId: text("to_user_id").references(() => users.id),
     status: text("status").notNull().default("open"),
+    paymentInfo: text("payment_info"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [index("invitations_session_idx").on(t.sessionId, t.status)],
@@ -362,10 +373,12 @@ export const ledgerEntries = sqliteTable(
       .references(() => users.id),
     amountCents: integer("amount_cents").notNull(),
     reason: text("reason").notNull(),
-    status: text("status").notNull().default("pending"),
+    status: text("status").notNull().default("pending"), // pending | claimed | settled
     weeklyEventId: text("weekly_event_id").references(() => weeklyEvents.id),
     sessionId: text("session_id").references(() => seasonSessions.id),
+    seasonId: text("season_id").references(() => seasons.id),
     externalPaymentId: text("external_payment_id"),
+    claimedAt: integer("claimed_at"),
     settledAt: integer("settled_at"),
     settledById: text("settled_by_id").references(() => users.id),
     createdAt: integer("created_at").notNull(),
@@ -374,6 +387,41 @@ export const ledgerEntries = sqliteTable(
     index("ledger_community_idx").on(t.communityId, t.status),
     index("ledger_from_idx").on(t.fromUserId),
     index("ledger_to_idx").on(t.toUserId),
+  ],
+);
+
+export const paymentMethods = sqliteTable(
+  "payment_methods",
+  {
+    id: text("id").primaryKey(),
+    communityId: text("community_id")
+      .notNull()
+      .references(() => communities.id),
+    label: text("label").notNull(),
+    details: text("details").notNull(),
+    createdById: text("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("payment_methods_community_idx").on(t.communityId)],
+);
+
+export const eventWaitlist = sqliteTable(
+  "event_waitlist",
+  {
+    id: text("id").primaryKey(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => weeklyEvents.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("event_waitlist_event_user_uidx").on(t.eventId, t.userId),
+    index("event_waitlist_event_idx").on(t.eventId, t.createdAt),
   ],
 );
 

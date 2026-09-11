@@ -152,6 +152,7 @@ export function listMemberClubs(userId: string) {
       id: communities.id,
       slug: communities.slug,
       name: communities.name,
+      imageUrl: communities.imageUrl,
     })
     .from(memberships)
     .innerJoin(communities, eq(communities.id, memberships.communityId))
@@ -200,6 +201,7 @@ export function listApprovedMembers(communityId: string) {
       email: users.email,
       telegramUsername: users.telegramUsername,
       imageUrl: users.imageUrl,
+      paymentInfo: users.paymentInfo,
     })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))

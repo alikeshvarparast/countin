@@ -6,6 +6,7 @@ import {
   contracts,
   memberships,
   seasonSessions,
+  seasonSignups,
   seasons,
   sessionSlots,
   users,
@@ -59,6 +60,9 @@ async function main() {
   const alex = await upsertUser("Alex Admin", "alex@club.com", "alexfc", passwordHash);
   const sam = await upsertUser("Sam Player", "sam@club.com", "samfc", passwordHash);
 
+  const riley = await upsertUser("Riley Occasional", "riley@club.com", "rileyfc", passwordHash);
+  const jordan = await upsertUser("Jordan Occasional", "jordan@club.com", "jordanfc", passwordHash);
+
   let community = db.select().from(communities).where(eq(communities.slug, "tuesday-night-fc")).get();
   if (!community) {
     const id = createId();
@@ -78,28 +82,24 @@ async function main() {
       })
       .run();
     community = db.select().from(communities).where(eq(communities.id, id)).get()!;
-    db.insert(memberships)
-      .values({
-        id: createId(),
-        communityId: community.id,
-        userId: alex.id,
-        role: "owner",
-        status: "approved",
-        createdAt: t,
-        updatedAt: t,
-      })
-      .run();
-    db.insert(memberships)
-      .values({
-        id: createId(),
-        communityId: community.id,
-        userId: sam.id,
-        role: "member",
-        status: "approved",
-        createdAt: t,
-        updatedAt: t,
-      })
-      .run();
+    for (const [user, role] of [
+      [alex, "owner"],
+      [sam, "member"],
+      [riley, "member"],
+      [jordan, "member"],
+    ] as const) {
+      db.insert(memberships)
+        .values({
+          id: createId(),
+          communityId: community.id,
+          userId: user.id,
+          role,
+          status: "approved",
+          createdAt: t,
+          updatedAt: t,
+        })
+        .run();
+    }
   }
 
   const hasEvent = db.select().from(weeklyEvents).where(eq(weeklyEvents.communityId, community.id)).get();
@@ -141,6 +141,7 @@ async function main() {
         timeLocal: "20:00",
         durationMinutes: 90,
         regularPriceCents: 1200,
+        homeVisibleWeeks: 4,
         minPlayers: 10,
         signupClosesAt: t + 7 * 24 * 60 * 60 * 1000,
         status: "locked",
@@ -181,6 +182,60 @@ async function main() {
         createdAt: t,
       })
       .run();
+  }
+
+  const hasAgreementDemo = db
+    .select()
+    .from(seasons)
+    .where(eq(seasons.communityId, community.id))
+    .all()
+    .some((s) => s.name === "Spring agreement demo");
+  if (!hasAgreementDemo) {
+    const seasonId = createId();
+    const start = new Date();
+    const end = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    db.insert(seasons)
+      .values({
+        id: seasonId,
+        communityId: community.id,
+        name: "Spring agreement demo",
+        location: "Riverside turf",
+        startDate: ymd(start),
+        endDate: ymd(end),
+        weekdays: JSON.stringify([2, 4]),
+        timeLocal: "20:00",
+        durationMinutes: 90,
+        regularPriceCents: 1500,
+        occasionalPriceCents: 2250,
+        occasionalPremiumPercent: 50,
+        homeVisibleWeeks: 3,
+        minPlayers: 2,
+        signupClosesAt: t - 24 * 60 * 60 * 1000,
+        status: "agreed",
+        createdAt: t,
+      })
+      .run();
+    for (const user of [alex, sam, riley]) {
+      db.insert(seasonSignups)
+        .values({
+          id: createId(),
+          seasonId,
+          userId: user.id,
+          intent: "agree",
+          createdAt: t,
+        })
+        .run();
+      db.insert(contracts)
+        .values({
+          id: createId(),
+          seasonId,
+          userId: user.id,
+          prepaid: true,
+          createdAt: t,
+        })
+        .run();
+    }
   }
 
   await notify({

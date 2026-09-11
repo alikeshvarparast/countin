@@ -3,56 +3,41 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
-import { cancelWeeklyEvent, confirmFieldBooked, lockPollTime, postWeeklyCost, removeEventGuest } from "@/lib/actions/weekly";
+import { cancelWeeklyEvent, confirmFieldBooked, lockPollTime, removeEventGuest } from "@/lib/actions/weekly";
 import { ActionMenu } from "@/components/action-menu";
 import { GuestForm } from "@/components/guest-form";
 import { PresenceVote } from "@/components/presence-vote";
-import { Field, Input, Modal, Textarea } from "@/components/ui";
+import { Field, Input, Modal } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
-import { formatMoney } from "@/lib/utils";
 
-type Panel = "presence" | "costs" | "guest" | "book" | "cancel" | "lock" | null;
+type Panel = "presence" | "guest" | "book" | "cancel" | "lock" | null;
 
 export function EventMenu({
   slug,
   eventId,
-  title,
-  currency,
   canVote,
   myStatus,
   canAddGuest,
   isAdmin,
-  canPostCost,
   canBook,
   canCancel,
   lockOptions,
-  collectorName,
-  totalCostCents,
-  paymentInfo,
   goingCount,
   notGoingCount,
-  guestCount,
   guests,
   showDetails = true,
 }: {
   slug: string;
   eventId: string;
-  title: string;
-  currency: string;
   canVote?: boolean;
   myStatus?: string | null;
   canAddGuest: boolean;
   isAdmin?: boolean;
-  canPostCost: boolean;
   canBook: boolean;
   canCancel: boolean;
   lockOptions?: { id: string; label: string }[];
-  collectorName?: string;
-  totalCostCents?: number | null;
-  paymentInfo?: string | null;
   goingCount?: number;
   notGoingCount?: number;
-  guestCount?: number;
   guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
   showDetails?: boolean;
 }) {
@@ -62,8 +47,7 @@ export function EventMenu({
   const href = `/app/c/${slug}/events/${eventId}`;
   const canLock = Boolean(isAdmin && lockOptions && lockOptions.length > 0);
   const showGuests = canAddGuest || Boolean(isAdmin && guests && guests.length > 0);
-  const hasItems =
-    showDetails || canVote || showGuests || isAdmin || canLock || canBook || canCancel;
+  const hasItems = showDetails || canVote || showGuests || canLock || canBook || canCancel;
   if (!hasItems) return null;
 
   function open(next: Panel) {
@@ -82,48 +66,43 @@ export function EventMenu({
         <MoreHorizontal className="h-4 w-4" />
       </button>
       <ActionMenu open={menu} onClose={() => setMenu(false)}>
-          {showDetails && (
-            <button
-              type="button"
-              className="block w-full px-3 py-2.5 text-left hover:bg-muted"
-              onClick={() => {
-                setMenu(false);
-                router.push(href);
-              }}
-            >
-              See details
-            </button>
-          )}
-          {canVote && (
-            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("presence")}>
-              Change presence
-            </button>
-          )}
-          {showGuests && (
-            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("guest")}>
-              {canAddGuest ? "Add guest" : "Guests"}
-            </button>
-          )}
-          {isAdmin && (
-            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("costs")}>
-              Costs
-            </button>
-          )}
-          {canLock && (
-            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("lock")}>
-              Lock a time
-            </button>
-          )}
-          {canBook && (
-            <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("book")}>
-              Mark field booked
-            </button>
-          )}
-          {canCancel && (
-            <button type="button" className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted" onClick={() => open("cancel")}>
-              Cancel event
-            </button>
-          )}
+        {showDetails && (
+          <button
+            type="button"
+            className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+            onClick={() => {
+              setMenu(false);
+              router.push(href);
+            }}
+          >
+            See details
+          </button>
+        )}
+        {canVote && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("presence")}>
+            Change presence
+          </button>
+        )}
+        {showGuests && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("guest")}>
+            {canAddGuest ? "Add guest" : "Guests"}
+          </button>
+        )}
+        {canLock && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("lock")}>
+            Lock a time
+          </button>
+        )}
+        {canBook && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("book")}>
+            Mark field booked
+          </button>
+        )}
+        {canCancel && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted" onClick={() => open("cancel")}>
+            Cancel event
+          </button>
+        )}
       </ActionMenu>
 
       {panel === "presence" && canVote && (
@@ -140,108 +119,62 @@ export function EventMenu({
         </Modal>
       )}
 
-      {panel === "costs" && isAdmin && (
-        <Modal eyebrow="Costs" title={title} onClose={() => setPanel(null)}>
-          <div className="space-y-3 text-sm">
-            <p>
-              Collector: <strong>{collectorName || "the collector"}</strong>
-              {totalCostCents != null && ` · total ${formatMoney(totalCostCents, currency)}`}
-            </p>
-            {paymentInfo && <p className="whitespace-pre-wrap text-ink/70">{paymentInfo}</p>}
-            {totalCostCents == null && <p className="text-ink/50">Cost will be posted after the session.</p>}
-            {totalCostCents != null && (
-              <p className="text-ink/55">
-                Posted among {goingCount ?? 0} players
-                {guestCount ? ` and ${guestCount} guest${guestCount === 1 ? "" : "s"}` : ""}. See the ledger.
-              </p>
-            )}
-            {canPostCost && (
-              <form
-                className="space-y-3 border-t border-line pt-3"
-                action={async (formData) => {
-                  await postWeeklyCost(formData);
-                  setPanel(null);
-                  router.refresh();
-                }}
-              >
-                <input type="hidden" name="eventId" value={eventId} />
-                <Field label={`Total (${currency})`}>
-                  <Input name="amount" type="number" step="0.01" min="0.01" required />
-                </Field>
-                <Field label="Payment details">
-                  <Textarea name="paymentInfo" rows={2} placeholder="E-transfer to…" />
-                </Field>
-                <SubmitButton>Split & notify</SubmitButton>
-              </form>
-            )}
-          </div>
-        </Modal>
-      )}
-
       {panel === "guest" && showGuests && (
-        <Modal eyebrow="Guests" title={canAddGuest ? "Add a guest" : "Guests"} onClose={() => setPanel(null)}>
-          <ul className="space-y-2 text-sm">
-            {(!guests || guests.length === 0) && <li className="text-ink/45">No guests yet.</li>}
-            {guests?.map((g) => (
-              <li key={g.id} className="flex items-center justify-between gap-2">
-                <span>
-                  {g.label}{" "}
-                  <span className="text-ink/45">
-                    (guest of {g.hostName}
-                    {g.status === "pending" ? " · waiting" : ""})
+        <Modal eyebrow="Guests" title="Guest list" onClose={() => setPanel(null)}>
+          {canAddGuest && <GuestForm eventId={eventId} />}
+          {guests && guests.length > 0 && (
+            <ul className="mt-3 space-y-2 text-sm">
+              {guests.map((g) => (
+                <li key={g.id} className="flex items-center justify-between gap-2">
+                  <span>
+                    {g.label} <span className="text-ink/45">· {g.hostName}</span>
                   </span>
-                </span>
-                {g.canRemove && (
-                  <form
-                    action={async () => {
-                      await removeEventGuest(g.id);
-                      router.refresh();
-                    }}
-                  >
-                    <SubmitButton size="sm" variant="ghost">
-                      Remove
-                    </SubmitButton>
-                  </form>
-                )}
-              </li>
-            ))}
-          </ul>
-          {canAddGuest && (
-            <div className="mt-3 border-t border-line pt-3">
-              <GuestForm eventId={eventId} />
-            </div>
+                  {g.canRemove && (
+                    <form
+                      action={async () => {
+                        await removeEventGuest(g.id);
+                        router.refresh();
+                      }}
+                    >
+                      <SubmitButton variant="ghost" className="h-8 px-2 text-xs">
+                        Remove
+                      </SubmitButton>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </Modal>
       )}
 
-      {panel === "lock" && canLock && (
-        <Modal eyebrow="Time poll" title="Lock a time" onClose={() => setPanel(null)}>
-          <ul className="space-y-3">
-            {lockOptions?.map((opt) => (
-              <li key={opt.id}>
-                <form
-                  action={async (formData) => {
-                    await lockPollTime(formData);
-                    setPanel(null);
-                    router.refresh();
-                  }}
-                  className="space-y-2 rounded-xl border border-line p-3"
-                >
-                  <input type="hidden" name="optionId" value={opt.id} />
-                  <p className="text-sm">{opt.label}</p>
-                  <Field label="Presence deadline">
-                    <Input name="rsvpDeadlineAt" type="datetime-local" />
-                  </Field>
-                  <SubmitButton>Lock this time</SubmitButton>
-                </form>
-              </li>
-            ))}
-          </ul>
+      {panel === "lock" && canLock && lockOptions && (
+        <Modal eyebrow="Time" title="Lock a kickoff" onClose={() => setPanel(null)}>
+          <form
+            className="space-y-3"
+            action={async (formData) => {
+              await lockPollTime(formData);
+              setPanel(null);
+              router.refresh();
+            }}
+          >
+            <input type="hidden" name="eventId" value={eventId} />
+            <Field label="Option">
+              <select name="optionId" required className="h-11 w-full rounded-xl border border-line bg-card px-3 text-sm">
+                {lockOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <SubmitButton>Lock time</SubmitButton>
+          </form>
         </Modal>
       )}
 
       {panel === "book" && canBook && (
-        <Modal eyebrow="Field" title="Mark this session booked?" onClose={() => setPanel(null)}>
+        <Modal eyebrow="Field" title="Mark field booked?" onClose={() => setPanel(null)}>
           <form
             action={async () => {
               await confirmFieldBooked(eventId);
@@ -249,21 +182,24 @@ export function EventMenu({
               router.refresh();
             }}
           >
-            <SubmitButton>Mark field booked</SubmitButton>
+            <SubmitButton>Confirm booked</SubmitButton>
           </form>
         </Modal>
       )}
 
       {panel === "cancel" && canCancel && (
-        <Modal eyebrow="Danger" title="Cancel this event?" onClose={() => setPanel(null)}>
-          <p className="mb-3 text-sm text-ink/60">Members will be notified. This cannot be undone.</p>
+        <Modal eyebrow="Cancel" title="Cancel this event?" onClose={() => setPanel(null)}>
           <form
-            action={async () => {
+            className="space-y-3"
+            action={async (formData) => {
               await cancelWeeklyEvent(eventId);
               setPanel(null);
               router.refresh();
             }}
           >
+            <Field label="Optional note">
+              <Input name="note" placeholder="Weather / pitch closed…" />
+            </Field>
             <SubmitButton variant="danger">Cancel event</SubmitButton>
           </form>
         </Modal>

@@ -153,8 +153,8 @@ export function ChatRoom({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-muted">
-      <div ref={scroller} className="h-0 min-h-0 flex-1 space-y-2 overflow-y-auto bg-muted px-3 py-3">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div ref={scroller} className="h-0 min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {messages.length === 0 && (
           <div className="flex min-h-full flex-col items-center justify-center px-6 py-16 text-center">
             <p className="font-display text-lg text-ink">Kick off the chat</p>
@@ -283,7 +283,7 @@ export function ChatRoom({
       )}
       <form
         ref={formRef}
-        className="relative shrink-0 px-3 pb-3 pt-1"
+        className="relative shrink-0 border-t border-line/60 bg-muted/70 px-3 pb-3 pt-2 backdrop-blur-md"
         action={async (formData) => {
           const result = await sendChatMessage(formData);
           if (!result?.error) {

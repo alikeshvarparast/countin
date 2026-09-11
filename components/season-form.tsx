@@ -65,8 +65,11 @@ export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLoc
           ))}
         </div>
       </fieldset>
-      <Field label="Target players">
+      <Field label="Minimum for agreement">
         <Input name="minPlayers" type="number" min={2} defaultValue={10} />
+      </Field>
+      <Field label="Show nights on Home for (weeks)">
+        <Input name="homeVisibleWeeks" type="number" min={1} max={52} defaultValue={4} />
       </Field>
       <Field label="Contract agreement deadline">
         <Input name="signupClosesAt" type="datetime-local" required />
@@ -74,7 +77,8 @@ export function SeasonForm({ slug, defaultLocation }: { slug: string; defaultLoc
       <p className="text-sm text-ink/50">
         Members first say whether they take a long-term contract. Nothing appears on the event list yet. After you
         close the agreement, you create the nights for the people who agreed. Everyone else is occasional on those
-        nights. Each season has its own contract list from its own vote.
+        nights. Each season has its own contract list from its own vote. Home only lists this season&apos;s nights
+        within the weeks window you set (Upcoming and Future).
       </p>
       {error && <p className="text-sm text-clay">{error}</p>}
       <SubmitButton>Create season</SubmitButton>
