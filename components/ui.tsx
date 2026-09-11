@@ -113,15 +113,18 @@ export function Badge({
 
 export function Field({
   label,
+  hint,
   children,
 }: {
   label: string;
+  hint?: string;
   children: ReactNode;
 }) {
   return (
     <div className="min-w-0">
       <Label>{label}</Label>
       {children}
+      {hint ? <p className="mt-1 text-xs text-ink/45">{hint}</p> : null}
     </div>
   );
 }

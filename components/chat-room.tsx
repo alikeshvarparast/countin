@@ -83,12 +83,45 @@ export function ChatRoom({
   const didInitialPin = useRef(false);
   const [atBottom, setAtBottom] = useState(!firstUnreadId);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menuOpenUp, setMenuOpenUp] = useState(false);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [body, setBody] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+
+  function clearLongPress() {
+    if (longPressTimer.current != null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
+
+  function openMessageMenu(id: string, anchor?: HTMLElement | null) {
+    const scrollerNode = scroller.current;
+    let openUp = false;
+    if (anchor && scrollerNode) {
+      const spaceBelow = scrollerNode.getBoundingClientRect().bottom - anchor.getBoundingClientRect().bottom;
+      openUp = spaceBelow < 230;
+    } else if (scrollerNode) {
+      // Long-press fallback: prefer upward near the bottom of the thread.
+      openUp = scrollerNode.scrollHeight - scrollerNode.scrollTop - scrollerNode.clientHeight < 160;
+    }
+    setMenuOpenUp(openUp);
+    setMenuFor(id);
+    setPickerFor(null);
+    setConfirmDeleteId(null);
+  }
+
+  function closeMessageMenu() {
+    setMenuFor(null);
+    setMenuOpenUp(false);
+    setPickerFor(null);
+    setConfirmDeleteId(null);
+  }
 
   function unreadTarget() {
     const node = scroller.current;
@@ -166,6 +199,23 @@ export function ChatRoom({
     return () => window.clearInterval(t);
   }, [router]);
 
+  useEffect(() => {
+    if (!menuFor) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-chat-msg-menu]")) return;
+      closeMessageMenu();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [menuFor]);
+
+  useLayoutEffect(() => {
+    if (!menuFor) return;
+    const menu = document.querySelector<HTMLElement>("[data-chat-menu-panel]");
+    menu?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [menuFor, menuOpenUp, pickerFor, confirmDeleteId]);
+
   function insertEmoji(emoji: string) {
     const el = inputRef.current;
     if (!el) {
@@ -197,6 +247,7 @@ export function ChatRoom({
           const mine = m.user.id === currentUserId;
           const deleted = Boolean(m.deletedAt);
           const editing = editingId === m.id;
+          const menuOpen = menuFor === m.id;
           const prev = index > 0 ? messages[index - 1] : null;
           const showDay = !prev || chatDayKey(prev.createdAt, timezone) !== chatDayKey(m.createdAt, timezone);
           const showAvatar = !mine && (!prev || prev.user.id !== m.user.id || showDay);
@@ -226,7 +277,31 @@ export function ChatRoom({
                     {showAvatar ? <Avatar src={m.user.imageUrl} name={m.user.name} size="sm" /> : null}
                   </div>
                 )}
-                <div className={cn("flex max-w-[82%] flex-col sm:max-w-[72%]", mine ? "items-end" : "items-start")}>
+                <div
+                  className={cn(
+                    "group relative flex max-w-[82%] flex-col sm:max-w-[72%]",
+                    mine ? "items-end" : "items-start",
+                  )}
+                  data-chat-msg-menu={menuOpen ? "" : undefined}
+                  onPointerDown={(event) => {
+                    if (deleted || editing || event.button !== 0) return;
+                    // Desktop uses hover + click; long-press is for touch.
+                    if (event.pointerType === "mouse") return;
+                    clearLongPress();
+                    const anchor = event.currentTarget as HTMLElement;
+                    longPressTimer.current = window.setTimeout(() => {
+                      openMessageMenu(m.id, anchor);
+                    }, 450);
+                  }}
+                  onPointerUp={clearLongPress}
+                  onPointerCancel={clearLongPress}
+                  onPointerLeave={clearLongPress}
+                  onContextMenu={(event) => {
+                    if (deleted || editing) return;
+                    event.preventDefault();
+                    openMessageMenu(m.id, event.currentTarget as HTMLElement);
+                  }}
+                >
                   <div
                     className={cn(
                       "relative px-2.5 pb-1.5 pt-1.5 text-[14.2px] leading-[1.35]",
@@ -237,6 +312,25 @@ export function ChatRoom({
                           : "chat-wa-bubble-theirs rounded-lg rounded-tl-sm",
                     )}
                   >
+                    {!deleted && !editing && (
+                      <button
+                        type="button"
+                        className={cn(
+                          "absolute top-0 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-[#54656f] shadow-sm backdrop-blur-[1px] transition-opacity",
+                          mine ? "-left-1" : "-right-1",
+                          menuOpen ? "opacity-100" : "opacity-0 md:group-hover:opacity-100",
+                        )}
+                        aria-label="Message actions"
+                        aria-expanded={menuOpen}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (menuOpen) closeMessageMenu();
+                          else openMessageMenu(m.id, event.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                    )}
                     {!mine && !deleted && showAvatar && (
                       <p className="mb-0.5 text-[12.5px] font-semibold text-[#128c7e]">{m.user.name}</p>
                     )}
@@ -303,6 +397,108 @@ export function ChatRoom({
                         </p>
                       </>
                     )}
+
+                    {menuOpen && !deleted && !editing && (
+                      <div
+                        className={cn(
+                          "absolute z-30 min-w-[10.5rem] overflow-hidden rounded-xl border border-[#e9edef] bg-white py-1 text-sm text-[#111b21] shadow-[0_8px_24px_rgba(11,20,26,0.18)]",
+                          menuOpenUp ? "bottom-8" : "top-8",
+                          mine ? "left-0" : "right-0",
+                        )}
+                        data-chat-msg-menu=""
+                        data-chat-menu-panel=""
+                      >
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-[#f0f2f5]"
+                          onClick={() => {
+                            setReplyTo(m);
+                            closeMessageMenu();
+                          }}
+                        >
+                          <Reply className="h-4 w-4 text-[#54656f]" />
+                          Reply
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-[#f0f2f5]"
+                          onClick={() => setPickerFor((id) => (id === m.id ? null : m.id))}
+                        >
+                          <SmilePlus className="h-4 w-4 text-[#54656f]" />
+                          React
+                        </button>
+                        {pickerFor === m.id && (
+                          <div className="flex flex-wrap gap-1 border-t border-[#e9edef] px-2 py-2">
+                            {REACTION_EMOJIS.map((emoji) => (
+                              <form
+                                key={emoji}
+                                action={async (formData) => {
+                                  await toggleChatReaction(formData);
+                                  closeMessageMenu();
+                                  router.refresh();
+                                }}
+                              >
+                                <input type="hidden" name="slug" value={slug} />
+                                <input type="hidden" name="messageId" value={m.id} />
+                                <input type="hidden" name="emoji" value={emoji} />
+                                <button type="submit" className="h-9 w-9 rounded-full text-base hover:bg-[#f0f2f5]">
+                                  {emoji}
+                                </button>
+                              </form>
+                            ))}
+                          </div>
+                        )}
+                        {mine && (
+                          <>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-[#f0f2f5]"
+                              onClick={() => {
+                                setEditingId(m.id);
+                                setEditBody(m.body);
+                                closeMessageMenu();
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 text-[#54656f]" />
+                              Edit
+                            </button>
+                            {confirmDeleteId === m.id ? (
+                              <form
+                                className="flex items-center gap-2 border-t border-[#e9edef] px-3 py-2"
+                                action={async (formData) => {
+                                  await deleteChatMessage(formData);
+                                  if (replyTo?.id === m.id) setReplyTo(null);
+                                  closeMessageMenu();
+                                  router.refresh();
+                                }}
+                              >
+                                <input type="hidden" name="slug" value={slug} />
+                                <input type="hidden" name="messageId" value={m.id} />
+                                <SubmitButton variant="danger" size="sm" className="h-7 px-2 text-[11px]">
+                                  Confirm
+                                </SubmitButton>
+                                <button
+                                  type="button"
+                                  className="text-[11px] text-[#667781]"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </form>
+                            ) : (
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[#c62828] hover:bg-[#f0f2f5]"
+                                onClick={() => setConfirmDeleteId(m.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {!deleted && m.reactions.length > 0 && (
                     <div className={cn("-mt-1 flex flex-wrap gap-1 px-1", mine ? "justify-end" : "")}>
@@ -328,106 +524,6 @@ export function ChatRoom({
                           </button>
                         </form>
                       ))}
-                    </div>
-                  )}
-                  {!deleted && !editing && (
-                    <div className={cn("mt-0.5 flex flex-wrap items-center gap-0.5 px-0.5", mine ? "flex-row-reverse" : "")}>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-[#667781] hover:bg-black/5 hover:text-[#111b21]"
-                        onClick={() => setReplyTo(m)}
-                      >
-                        <Reply className="h-3 w-3" />
-                        Reply
-                      </button>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] text-[#667781] hover:bg-black/5 hover:text-[#111b21]"
-                          onClick={() => setPickerFor((id) => (id === m.id ? null : m.id))}
-                        >
-                          <SmilePlus className="h-3 w-3" />
-                        </button>
-                        {pickerFor === m.id && (
-                          <div
-                            className={cn(
-                              "absolute bottom-6 z-10 flex gap-1 rounded-full border border-[#e9edef] bg-white p-1 shadow-md",
-                              mine ? "right-0" : "left-0",
-                            )}
-                          >
-                            {REACTION_EMOJIS.map((emoji) => (
-                              <form
-                                key={emoji}
-                                action={async (formData) => {
-                                  await toggleChatReaction(formData);
-                                  setPickerFor(null);
-                                  router.refresh();
-                                }}
-                              >
-                                <input type="hidden" name="slug" value={slug} />
-                                <input type="hidden" name="messageId" value={m.id} />
-                                <input type="hidden" name="emoji" value={emoji} />
-                                <button type="submit" className="h-8 w-8 rounded-full text-sm hover:bg-[#f0f2f5]">
-                                  {emoji}
-                                </button>
-                              </form>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {mine && (
-                        <>
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-[#667781] hover:bg-black/5 hover:text-[#111b21]"
-                            onClick={() => {
-                              setEditingId(m.id);
-                              setEditBody(m.body);
-                              setConfirmDeleteId(null);
-                              setPickerFor(null);
-                            }}
-                          >
-                            <Pencil className="h-3 w-3" />
-                            Edit
-                          </button>
-                          {confirmDeleteId === m.id ? (
-                            <form
-                              className="inline-flex items-center gap-1"
-                              action={async (formData) => {
-                                await deleteChatMessage(formData);
-                                setConfirmDeleteId(null);
-                                if (replyTo?.id === m.id) setReplyTo(null);
-                                router.refresh();
-                              }}
-                            >
-                              <input type="hidden" name="slug" value={slug} />
-                              <input type="hidden" name="messageId" value={m.id} />
-                              <SubmitButton variant="danger" size="sm" className="h-7 px-2 text-[11px]">
-                                Confirm
-                              </SubmitButton>
-                              <button
-                                type="button"
-                                className="text-[11px] text-[#667781]"
-                                onClick={() => setConfirmDeleteId(null)}
-                              >
-                                Cancel
-                              </button>
-                            </form>
-                          ) : (
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-[#667781] hover:bg-black/5 hover:text-[#c62828]"
-                              onClick={() => {
-                                setConfirmDeleteId(m.id);
-                                setPickerFor(null);
-                              }}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              Delete
-                            </button>
-                          )}
-                        </>
-                      )}
                     </div>
                   )}
                 </div>

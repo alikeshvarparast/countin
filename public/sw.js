@@ -72,6 +72,8 @@ self.addEventListener("push", (event) => {
       } else if (self.registration.clearAppBadge) {
         await self.registration.clearAppBadge();
       }
+      // Muted chat (and other silent pushes): keep badge numbers, skip OS alert.
+      if (data.silent) return;
       await self.registration.showNotification(title, {
         body: data.body || "You have a new update.",
         icon: "/icons/icon-192.png",

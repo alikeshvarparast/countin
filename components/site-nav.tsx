@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Bell, CircleHelp, LogIn, LogOut, Menu, Plus, Search, UserRound, X } from "lucide-react";
 import { logout } from "@/lib/actions/session";
 import { Avatar } from "@/components/avatar";
+import { ChatMuteControl } from "@/components/chat-mute-control";
 
 function inboxHref(pathname: string) {
   const match = pathname.match(/^\/app\/c\/([^/]+)/);
@@ -63,6 +64,7 @@ export function SiteNav({
               <CircleHelp className="h-4 w-4" />
               Help
             </Link>
+            <ChatMuteControl />
             <Link href={inbox} className="relative text-ink/70 hover:text-ink" aria-label="Notifications">
               <Bell className="h-5 w-5" />
               {unread > 0 && (
@@ -93,18 +95,21 @@ export function SiteNav({
       </div>
       <div className="flex items-center gap-1 md:hidden">
         {loggedIn && (
-          <Link
-            href={inbox}
-            className="relative flex h-11 w-11 items-center justify-center rounded-full text-ink"
-            aria-label="Notifications"
-          >
-            <Bell className="h-5 w-5" />
-            {unread > 0 && (
-              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-ink">
-                {unread}
-              </span>
-            )}
-          </Link>
+          <>
+            <ChatMuteControl />
+            <Link
+              href={inbox}
+              className="relative flex h-11 w-11 items-center justify-center rounded-full text-ink"
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5" />
+              {unread > 0 && (
+                <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-ink">
+                  {unread}
+                </span>
+              )}
+            </Link>
+          </>
         )}
         <button
           type="button"

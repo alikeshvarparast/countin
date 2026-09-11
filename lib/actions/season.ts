@@ -29,6 +29,7 @@ import {
 import { createId, now } from "@/lib/id";
 import { notify, notifyMany } from "@/lib/notify";
 import { eachSeasonDate, zonedDateTimeToUtcMs } from "@/lib/timezone";
+import { seasonFirstPaymentAmountCents, seasonFirstPaymentExtraSessions, sessionsFromPaymentPeriodWeeks, buildSeasonPaymentSchedule } from "@/lib/season-billing";
 import { formatMoney, localInputToMs, parseDurationMinutes, formatEventWhen } from "@/lib/utils";
 
 function communityPath(slug: string, rest = "") {
@@ -136,8 +137,10 @@ export async function updateSeasonRates(formData: FormData) {
   requireAdmin(season.communityId, user.id);
   const regular = Number(formData.get("regularPrice") ?? "");
   const premiumPercent = Number(formData.get("occasionalPremiumPercent") ?? "");
-  const prepaidRaw = String(formData.get("prepaidSessionCount") ?? "").trim();
-  const prepaidSessionCount = prepaidRaw ? Number(prepaidRaw) : null;
+  const periodWeeksRaw = String(formData.get("paymentPeriodWeeks") ?? "").trim();
+  const paymentPeriodWeeks = periodWeeksRaw ? Number(periodWeeksRaw) : null;
+  const extraWeeksRaw = String(formData.get("firstPaymentExtraWeeks") ?? "").trim();
+  const firstPaymentExtraWeeks = extraWeeksRaw ? Number(extraWeeksRaw) : 0;
   const paymentInfo = String(formData.get("paymentInfo") ?? "").trim();
   const collectorUserId = String(formData.get("collectorUserId") ?? "").trim() || user.id;
   const homeWeeksRaw = Number(formData.get("homeVisibleWeeks") ?? season.homeVisibleWeeks ?? 4);
@@ -145,8 +148,11 @@ export async function updateSeasonRates(formData: FormData) {
   if (!Number.isFinite(premiumPercent) || premiumPercent < 0) {
     return { error: "Set the occasional premium percent (0 or more)." };
   }
-  if (prepaidSessionCount != null && (!Number.isFinite(prepaidSessionCount) || prepaidSessionCount < 1)) {
-    return { error: "Advance sessions must be at least 1." };
+  if (paymentPeriodWeeks != null && (!Number.isFinite(paymentPeriodWeeks) || paymentPeriodWeeks < 1)) {
+    return { error: "Payment period must be at least 1 week." };
+  }
+  if (!Number.isFinite(firstPaymentExtraWeeks) || firstPaymentExtraWeeks < 0 || firstPaymentExtraWeeks > 52) {
+    return { error: "Last weeks on first payment must be between 0 and 52." };
   }
   if (!Number.isFinite(homeWeeksRaw) || homeWeeksRaw < 1 || homeWeeksRaw > 52) {
     return { error: "Home weeks must be between 1 and 52." };
@@ -154,12 +160,35 @@ export async function updateSeasonRates(formData: FormData) {
   const regularCents = Math.round(regular * 100);
   const occasionalCents = Math.round(regularCents * (1 + premiumPercent / 100));
   const homeVisibleWeeks = Math.round(homeWeeksRaw);
+  const prepaidSessionCount =
+    paymentPeriodWeeks != null
+      ? sessionsFromPaymentPeriodWeeks(season.weekdays, paymentPeriodWeeks)
+      : null;
+  if (paymentPeriodWeeks != null) {
+    const preview = buildSeasonPaymentSchedule({
+      startDate: season.startDate,
+      endDate: season.endDate,
+      weekdays: season.weekdays,
+      regularPriceCents: regularCents,
+      paymentPeriodWeeks: Math.round(paymentPeriodWeeks),
+      firstPaymentLastWeeks: Math.round(firstPaymentExtraWeeks),
+      prepaidSessionCount,
+    });
+    if (!preview || preview.length === 0) {
+      return {
+        error:
+          "Those payment weeks do not fit this contract. Last weeks on first payment must leave room for at least one period.",
+      };
+    }
+  }
   db.update(seasons)
     .set({
       regularPriceCents: regularCents,
       occasionalPriceCents: occasionalCents,
       occasionalPremiumPercent: Math.round(premiumPercent),
+      paymentPeriodWeeks: paymentPeriodWeeks != null ? Math.round(paymentPeriodWeeks) : null,
       prepaidSessionCount,
+      firstPaymentExtraWeeks: Math.round(firstPaymentExtraWeeks),
       paymentInfo: paymentInfo || null,
       collectorUserId,
       homeVisibleWeeks,
@@ -190,8 +219,7 @@ export async function updateSeasonRates(formData: FormData) {
 }
 
 function seasonPrepayAmountCents(season: typeof seasons.$inferSelect) {
-  if (!season.regularPriceCents || !season.prepaidSessionCount) return null;
-  return season.regularPriceCents * season.prepaidSessionCount;
+  return seasonFirstPaymentAmountCents(season);
 }
 
 /** Keep pending/claimed season prepay rows aligned with current contract list and rates. */
@@ -256,7 +284,9 @@ export async function sendSeasonPaymentRequest(formData: FormData) {
   requireAdmin(season.communityId, user.id);
   if (season.paymentRequestedAt) return { error: "Payment requests were already sent." };
   if (!season.regularPriceCents) return { error: "Set the contract rate first." };
-  if (!season.prepaidSessionCount) return { error: "Set how many sessions are paid in advance." };
+  if (!season.paymentPeriodWeeks && !season.prepaidSessionCount) {
+    return { error: "Set how often players pay (every N weeks)." };
+  }
   if (!season.paymentInfo) return { error: "Add payment details first." };
   const collectorId = season.collectorUserId ?? primaryAdminId(season.communityId);
   const contractPlayers = db.select().from(contracts).where(eq(contracts.seasonId, seasonId)).all();
@@ -264,12 +294,19 @@ export async function sendSeasonPaymentRequest(formData: FormData) {
 
   const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
   if (!community) return { error: "Community not found." };
-  const amountCents = season.regularPriceCents * season.prepaidSessionCount;
+  const amountCents = seasonFirstPaymentAmountCents(season);
+  if (amountCents == null) return { error: "Could not calculate the first payment amount. Check season dates and payment weeks." };
+  const extraSessions = seasonFirstPaymentExtraSessions(season);
   const collector =
     db.select().from(users).where(eq(users.id, collectorId)).get()?.name ?? "the collector";
   const t = now();
 
   db.update(seasons).set({ paymentRequestedAt: t, collectorUserId: collectorId }).where(eq(seasons.id, seasonId)).run();
+
+  const nightsLabel =
+    extraSessions > 0
+      ? `the first period plus ${season.firstPaymentExtraWeeks} last week${season.firstPaymentExtraWeeks === 1 ? "" : "s"} of the contract`
+      : `the first payment period`;
 
   for (const row of contractPlayers) {
     if (row.userId === collectorId) continue;
@@ -291,7 +328,7 @@ export async function sendSeasonPaymentRequest(formData: FormData) {
       communityId: community.id,
       type: "cost_posted",
       title: `Season payment due · ${season.name}`,
-      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collector} for ${season.prepaidSessionCount} nights. ${season.paymentInfo}`,
+      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collector} for ${nightsLabel}. ${season.paymentInfo}`,
       href: communityPath(community.slug, "/ledger"),
     });
   }

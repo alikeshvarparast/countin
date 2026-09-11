@@ -59,6 +59,8 @@ export const memberships = sqliteTable(
     role: text("role").notNull().default("member"),
     status: text("status").notNull().default("pending"),
     ledgerAcceptedAt: integer("ledger_accepted_at"),
+    /** When set, chat messages still bump badges but skip phone alerts. */
+    chatMutedAt: integer("chat_muted_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -252,6 +254,13 @@ export const seasons = sqliteTable(
     occasionalPriceCents: integer("occasional_price_cents"),
     occasionalPremiumPercent: integer("occasional_premium_percent"),
     prepaidSessionCount: integer("prepaid_session_count"),
+    /** Pay every N contract weeks (e.g. 4). */
+    paymentPeriodWeeks: integer("payment_period_weeks"),
+    /**
+     * Last N weeks of the contract collected on the first payment only.
+     * Those weeks are skipped at the end of the schedule.
+     */
+    firstPaymentExtraWeeks: integer("first_payment_extra_weeks").notNull().default(0),
     paymentInfo: text("payment_info"),
     collectorUserId: text("collector_user_id").references(() => users.id),
     paymentRequestedAt: integer("payment_requested_at"),

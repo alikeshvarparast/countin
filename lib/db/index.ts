@@ -508,6 +508,15 @@ if (!hasColumn("communities", "is_public")) {
 if (!hasColumn("memberships", "ledger_accepted_at")) {
   sqlite.exec("ALTER TABLE memberships ADD COLUMN ledger_accepted_at INTEGER");
 }
+if (!hasColumn("memberships", "chat_muted_at")) {
+  sqlite.exec("ALTER TABLE memberships ADD COLUMN chat_muted_at INTEGER");
+}
+if (!hasColumn("seasons", "first_payment_extra_weeks")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN first_payment_extra_weeks INTEGER NOT NULL DEFAULT 0");
+}
+if (!hasColumn("seasons", "payment_period_weeks")) {
+  sqlite.exec("ALTER TABLE seasons ADD COLUMN payment_period_weeks INTEGER");
+}
 if (!hasColumn("users", "platform_role")) {
   sqlite.exec("ALTER TABLE users ADD COLUMN platform_role TEXT");
 }

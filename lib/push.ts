@@ -14,6 +14,8 @@ export type PushPayload = {
   href?: string | null;
   unreadCount?: number;
   tag?: string;
+  /** Update app badge only — no banner, sound, or vibration. */
+  silent?: boolean;
 };
 
 type VapidKeys = { publicKey: string; privateKey: string };
@@ -133,6 +135,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
     href: payload.href ?? "/app/notifications",
     unreadCount: payload.unreadCount ?? countAppBadge(userId),
     tag: payload.tag,
+    silent: Boolean(payload.silent),
   });
 
   let sent = 0;

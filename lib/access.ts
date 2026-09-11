@@ -197,6 +197,7 @@ export function listApprovedMembers(communityId: string) {
       membershipId: memberships.id,
       userId: memberships.userId,
       role: memberships.role,
+      chatMutedAt: memberships.chatMutedAt,
       name: users.name,
       email: users.email,
       telegramUsername: users.telegramUsername,

@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { contracts, seasonSessions, seasonSignups, seasons, sessionSlots, users } from "@/lib/db/schema";
 import { PageFrame } from "@/components/page-frame";
 import { formatDuration, formatEventWhen, formatMoney, formatWhen, WEEKDAY_LABELS } from "@/lib/utils";
+import { seasonFirstPaymentAmountCents, seasonPaymentPeriodWeeks } from "@/lib/season-billing";
 
 export default async function SeasonDetailPage({
   params,
@@ -53,6 +54,7 @@ export default async function SeasonDetailPage({
   const agreementClosed = season.status === "agreed";
   const nightsOpen = season.status === "locked";
   const cancelled = season.status === "cancelled";
+  const periodWeeks = seasonPaymentPeriodWeeks(season);
   const ratesLabel =
     season.regularPriceCents > 0
       ? `Contract ${formatMoney(season.regularPriceCents, community.currency)}${
@@ -61,12 +63,17 @@ export default async function SeasonDetailPage({
                 season.occasionalPremiumPercent != null ? ` (+${season.occasionalPremiumPercent}%)` : ""
               }`
             : " · occasional rate later"
-        }${season.prepaidSessionCount ? ` · ${season.prepaidSessionCount} nights in advance` : ""}`
+        }${
+          periodWeeks
+            ? ` · every ${periodWeeks} weeks${
+                (season.firstPaymentExtraWeeks ?? 0) > 0
+                  ? ` · last ${season.firstPaymentExtraWeeks} weeks on first payment`
+                  : ""
+              }`
+            : ""
+        }`
       : "Session rates not set yet";
-  const duesPerPlayerCents =
-    season.regularPriceCents > 0 && season.prepaidSessionCount
-      ? season.regularPriceCents * season.prepaidSessionCount
-      : null;
+  const duesPerPlayerCents = seasonFirstPaymentAmountCents(season);
   const sessions = db
     .select()
     .from(seasonSessions)
@@ -216,10 +223,15 @@ export default async function SeasonDetailPage({
           <SeasonRatesForm
             seasonId={season.id}
             currency={community.currency}
+            startDate={season.startDate}
+            endDate={season.endDate}
+            weekdays={season.weekdays}
             regularPriceCents={season.regularPriceCents}
             occasionalPriceCents={season.occasionalPriceCents}
             occasionalPremiumPercent={season.occasionalPremiumPercent}
+            paymentPeriodWeeks={season.paymentPeriodWeeks}
             prepaidSessionCount={season.prepaidSessionCount}
+            firstPaymentLastWeeks={season.firstPaymentExtraWeeks ?? 0}
             paymentInfo={season.paymentInfo}
             collectorUserId={season.collectorUserId}
             paymentRequestedAt={season.paymentRequestedAt}
@@ -228,7 +240,7 @@ export default async function SeasonDetailPage({
             canRequestPayment={Boolean(
               (agreementClosed || nightsOpen) &&
                 season.regularPriceCents > 0 &&
-                season.prepaidSessionCount &&
+                (season.paymentPeriodWeeks || season.prepaidSessionCount) &&
                 season.paymentInfo,
             )}
           />

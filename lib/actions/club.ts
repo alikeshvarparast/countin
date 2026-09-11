@@ -13,6 +13,7 @@ import {
   clubPollVotes,
   clubPolls,
   communities,
+  memberships,
 } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
 import { notifyMany } from "@/lib/notify";
@@ -55,7 +56,7 @@ export async function sendChatMessage(formData: FormData) {
   const members = listApprovedMembers(community.id);
   await Promise.all(
     members
-      .filter((member) => member.userId !== user.id)
+      .filter((member) => member.userId !== user.id && !member.chatMutedAt)
       .map((member) =>
         sendPushToUser(member.userId, {
           title: community.name,
@@ -69,6 +70,31 @@ export async function sendChatMessage(formData: FormData) {
   revalidatePath(`/app/c/${slug}/chat`);
   revalidatePath(`/app/c/${slug}`, "layout");
   return { ok: true };
+}
+
+export async function getChatMuted(slug: string) {
+  const user = await requireUser();
+  const community = getCommunityBySlug(slug);
+  if (!community) return false;
+  const membership = getClubMembership(community.id, user.id);
+  return Boolean(membership?.chatMutedAt);
+}
+
+export async function setChatMuted(slug: string, muted: boolean) {
+  const user = await requireUser();
+  const community = getCommunityBySlug(slug);
+  if (!community) return { error: "Community not found." };
+  const membership = requireMember(community.id, user.id);
+  const ts = now();
+  db.update(memberships)
+    .set({
+      chatMutedAt: muted ? ts : null,
+      updatedAt: ts,
+    })
+    .where(eq(memberships.id, membership.id))
+    .run();
+  revalidatePath(`/app/c/${slug}/chat`);
+  return { ok: true, muted };
 }
 
 export async function editChatMessage(formData: FormData) {
