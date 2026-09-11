@@ -1,4 +1,4 @@
-import { zonedDateTimeToUtcMs } from "@/lib/timezone";
+import { zonedDateTimeToUtcMs, msToZonedDateAndTime } from "@/lib/timezone";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -213,6 +213,42 @@ export function msToLocalInput(ms: number | null | undefined) {
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function weeklyEventEditDefaults(
+  event: {
+    title: string;
+    location: string | null;
+    minPlayers: number;
+    maxPlayers: number | null;
+    paymentMode: string;
+    status: string;
+    startsAt: number | null;
+    hasTime: boolean | number | null;
+    durationMinutes: number | null;
+    rsvpDeadlineAt: number | null;
+    paymentRequestedAt?: number | null;
+  },
+  timeZone: string,
+  clubLocation = "",
+) {
+  const parts = event.startsAt ? msToZonedDateAndTime(event.startsAt, timeZone) : { date: "", time: "" };
+  const duration = event.durationMinutes ?? 0;
+  return {
+    title: event.title,
+    location: event.location || clubLocation,
+    minPlayers: event.minPlayers,
+    maxPlayers: event.maxPlayers,
+    paymentMode: (event.paymentMode === "prepaid" ? "prepaid" : "postpay") as "postpay" | "prepaid",
+    status: event.status,
+    startDate: parts.date,
+    startTime: parts.time,
+    hasTime: hasClockTime(event.hasTime),
+    durationHours: duration > 0 ? String(Math.floor(duration / 60)) : "",
+    durationMinutes: duration > 0 ? String(duration % 60) : "0",
+    rsvpDeadlineAt: msToLocalInput(event.rsvpDeadlineAt),
+    paymentLocked: Boolean(event.paymentRequestedAt),
+  };
 }
 
 export function safeNextPath(raw: unknown) {

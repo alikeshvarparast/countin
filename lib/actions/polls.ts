@@ -216,6 +216,104 @@ export async function addPollOption(formData: FormData) {
   return { ok: true };
 }
 
+export async function updatePoll(formData: FormData) {
+  const user = await requireUser();
+  const kind = String(formData.get("kind") ?? "") === "event" ? "event" : "club";
+  const pollId = String(formData.get("pollId") ?? "");
+  const question = String(formData.get("question") ?? "").trim();
+  const closesRaw = String(formData.get("closesAt") ?? "").trim();
+  if (question.length < 2) return { error: "Ask a question." };
+  const communityId = communityIdForPoll(kind, pollId);
+  if (!communityId) return { error: "Poll not found." };
+  requireAdmin(communityId, user.id);
+
+  if (kind === "event") {
+    const poll = db.select().from(polls).where(eq(polls.id, pollId)).get();
+    if (!poll) return { error: "Poll not found." };
+    const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, poll.eventId)).get();
+    if (!event || event.status !== "polling") return { error: "This time poll is closed." };
+    db.update(polls)
+      .set({ question, closesAt: closesRaw ? localInputToMs(closesRaw) : null })
+      .where(eq(polls.id, pollId))
+      .run();
+  } else {
+    const poll = db.select().from(clubPolls).where(eq(clubPolls.id, pollId)).get();
+    if (!poll) return { error: "Poll not found." };
+    db.update(clubPolls)
+      .set({ question, closesAt: closesRaw ? localInputToMs(closesRaw) : null })
+      .where(eq(clubPolls.id, pollId))
+      .run();
+  }
+
+  revalidatePoll(kind, pollId);
+  return { ok: true };
+}
+
+export async function updatePollOption(formData: FormData) {
+  const user = await requireUser();
+  const kind = String(formData.get("kind") ?? "") === "event" ? "event" : "club";
+  const optionId = String(formData.get("optionId") ?? "");
+  const label = String(formData.get("label") ?? "").trim();
+  if (label.length < 2) return { error: "Describe the option." };
+
+  if (kind === "club") {
+    const option = db.select().from(clubPollOptions).where(eq(clubPollOptions.id, optionId)).get();
+    if (!option) return { error: "Option not found." };
+    const communityId = communityIdForPoll("club", option.pollId);
+    if (!communityId) return { error: "Poll not found." };
+    requireAdmin(communityId, user.id);
+    db.update(clubPollOptions).set({ label }).where(eq(clubPollOptions.id, optionId)).run();
+    revalidatePoll("club", option.pollId);
+  } else {
+    const option = db.select().from(pollOptions).where(eq(pollOptions.id, optionId)).get();
+    if (!option) return { error: "Option not found." };
+    const poll = db.select().from(polls).where(eq(polls.id, option.pollId)).get();
+    if (!poll) return { error: "Poll not found." };
+    const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, poll.eventId)).get();
+    if (!event || event.status !== "polling") return { error: "This time poll is closed." };
+    requireAdmin(event.communityId, user.id);
+    db.update(pollOptions)
+      .set({ label, startsAt: localInputToMs(label) })
+      .where(eq(pollOptions.id, optionId))
+      .run();
+    revalidatePoll("event", option.pollId);
+  }
+  return { ok: true };
+}
+
+export async function removePollOption(formData: FormData) {
+  const user = await requireUser();
+  const kind = String(formData.get("kind") ?? "") === "event" ? "event" : "club";
+  const optionId = String(formData.get("optionId") ?? "");
+
+  if (kind === "club") {
+    const option = db.select().from(clubPollOptions).where(eq(clubPollOptions.id, optionId)).get();
+    if (!option) return { error: "Option not found." };
+    const communityId = communityIdForPoll("club", option.pollId);
+    if (!communityId) return { error: "Poll not found." };
+    requireAdmin(communityId, user.id);
+    const siblings = db.select().from(clubPollOptions).where(eq(clubPollOptions.pollId, option.pollId)).all();
+    if (siblings.length <= 2) return { error: "Keep at least two options." };
+    db.delete(clubPollVotes).where(eq(clubPollVotes.optionId, optionId)).run();
+    db.delete(clubPollOptions).where(eq(clubPollOptions.id, optionId)).run();
+    revalidatePoll("club", option.pollId);
+  } else {
+    const option = db.select().from(pollOptions).where(eq(pollOptions.id, optionId)).get();
+    if (!option) return { error: "Option not found." };
+    const poll = db.select().from(polls).where(eq(polls.id, option.pollId)).get();
+    if (!poll) return { error: "Poll not found." };
+    const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, poll.eventId)).get();
+    if (!event || event.status !== "polling") return { error: "This time poll is closed." };
+    requireAdmin(event.communityId, user.id);
+    const siblings = db.select().from(pollOptions).where(eq(pollOptions.pollId, option.pollId)).all();
+    if (siblings.length <= 2) return { error: "Keep at least two options." };
+    db.delete(votes).where(eq(votes.optionId, optionId)).run();
+    db.delete(pollOptions).where(eq(pollOptions.id, optionId)).run();
+    revalidatePoll("event", option.pollId);
+  }
+  return { ok: true };
+}
+
 export async function deletePoll(formData: FormData) {
   const user = await requireUser();
   const kind = String(formData.get("kind") ?? "") === "event" ? "event" : "club";

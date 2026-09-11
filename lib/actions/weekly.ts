@@ -78,8 +78,14 @@ export async function createWeeklyEvent(formData: FormData) {
     return { error: "Maximum must be at least the minimum." };
   }
 
-  const durationMinutes = parseDurationMinutes(formData.get("durationHours"), formData.get("durationMinutes"));
-  if (durationMinutes == null) return { error: "Set how long the session lasts." };
+  const hoursRaw = String(formData.get("durationHours") ?? "").trim();
+  const minutesRaw = String(formData.get("durationMinutes") ?? "").trim();
+  const durationProvided = hoursRaw !== "" || (minutesRaw !== "" && minutesRaw !== "0");
+  let durationMinutes: number | null = null;
+  if (durationProvided) {
+    durationMinutes = parseDurationMinutes(hoursRaw || "0", minutesRaw || "0");
+    if (durationMinutes == null) return { error: "Duration looks invalid." };
+  }
 
   const id = createId();
   const t = now();
@@ -201,6 +207,89 @@ export async function createWeeklyEvent(formData: FormData) {
   revalidatePath(`/app/c/${slug}`);
   revalidatePath(`/app/c/${slug}/events`);
   return { ok: true, id };
+}
+
+export async function updateWeeklyEvent(formData: FormData) {
+  const user = await requireUser();
+  const eventId = String(formData.get("eventId") ?? "");
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireAdmin(event.communityId, user.id);
+  if (event.status === "cancelled" || event.status === "completed") {
+    return { error: "This event can no longer be edited." };
+  }
+
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (!community) return { error: "Community not found." };
+
+  const title = String(formData.get("title") ?? "").trim();
+  const location = String(formData.get("location") ?? "").trim() || community.location || "";
+  const minPlayers = Number(formData.get("minPlayers") ?? event.minPlayers);
+  const maxRaw = String(formData.get("maxPlayers") ?? "").trim();
+  const maxPlayers = maxRaw ? Number(maxRaw) : null;
+  const paymentMode = String(formData.get("paymentMode") ?? event.paymentMode) === "prepaid" ? "prepaid" : "postpay";
+
+  if (title.length < 2) return { error: "Give the event a title." };
+  if (!Number.isFinite(minPlayers) || minPlayers < 2) return { error: "Minimum players must be at least 2." };
+  if (maxPlayers != null && (!Number.isFinite(maxPlayers) || maxPlayers < minPlayers)) {
+    return { error: "Maximum must be at least the minimum." };
+  }
+
+  const hoursRaw = String(formData.get("durationHours") ?? "").trim();
+  const minutesRaw = String(formData.get("durationMinutes") ?? "").trim();
+  const durationProvided = hoursRaw !== "" || (minutesRaw !== "" && minutesRaw !== "0");
+  let durationMinutes: number | null = null;
+  if (durationProvided) {
+    durationMinutes = parseDurationMinutes(hoursRaw || "0", minutesRaw || "0");
+    if (durationMinutes == null) return { error: "Duration looks invalid." };
+  }
+
+  const patch: {
+    title: string;
+    location: string | null;
+    minPlayers: number;
+    maxPlayers: number | null;
+    durationMinutes: number | null;
+    paymentMode: "postpay" | "prepaid";
+    startsAt?: number | null;
+    hasTime?: boolean;
+    rsvpDeadlineAt?: number | null;
+  } = {
+    title,
+    location: location || null,
+    minPlayers,
+    maxPlayers,
+    durationMinutes,
+    paymentMode: event.paymentRequestedAt ? (event.paymentMode as "postpay" | "prepaid") : paymentMode,
+  };
+
+  if (event.status !== "polling") {
+    const parsed = eventStartFromParts(
+      String(formData.get("startDate") ?? ""),
+      String(formData.get("startTime") ?? ""),
+      community.timezone,
+    );
+    if (!parsed) return { error: "Pick a date." };
+    const rsvpRaw = String(formData.get("rsvpDeadlineAt") ?? "").trim();
+    patch.startsAt = parsed.startsAt;
+    patch.hasTime = parsed.hasTime;
+    patch.rsvpDeadlineAt = rsvpRaw ? localInputToMs(rsvpRaw) : null;
+  }
+
+  db.update(weeklyEvents).set(patch).where(eq(weeklyEvents.id, event.id)).run();
+
+  audit({
+    communityId: community.id,
+    actorId: user.id,
+    action: "weekly.event_update",
+    entityType: "weekly_event",
+    entityId: event.id,
+  });
+
+  revalidatePath(`/app/c/${community.slug}`);
+  revalidatePath(`/app/c/${community.slug}/events`);
+  revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+  return { ok: true };
 }
 
 export async function votePoll(formData: FormData) {

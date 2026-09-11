@@ -3,14 +3,30 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
-import { cancelWeeklyEvent, confirmFieldBooked, lockPollTime, removeEventGuest } from "@/lib/actions/weekly";
+import { cancelWeeklyEvent, confirmFieldBooked, lockPollTime, removeEventGuest, updateWeeklyEvent } from "@/lib/actions/weekly";
 import { ActionMenu } from "@/components/action-menu";
 import { GuestForm } from "@/components/guest-form";
 import { PresenceVote } from "@/components/presence-vote";
-import { Field, Input, Modal } from "@/components/ui";
+import { Field, Input, Modal, Select } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 
-type Panel = "presence" | "guest" | "book" | "cancel" | "lock" | null;
+type Panel = "presence" | "guest" | "book" | "cancel" | "lock" | "edit" | null;
+
+export type EventEditDefaults = {
+  title: string;
+  location: string;
+  minPlayers: number;
+  maxPlayers: number | null;
+  paymentMode: "postpay" | "prepaid";
+  status: string;
+  startDate: string;
+  startTime: string;
+  hasTime: boolean;
+  durationHours: string;
+  durationMinutes: string;
+  rsvpDeadlineAt: string;
+  paymentLocked?: boolean;
+};
 
 export function EventMenu({
   slug,
@@ -21,6 +37,8 @@ export function EventMenu({
   isAdmin,
   canBook,
   canCancel,
+  canEdit,
+  editDefaults,
   lockOptions,
   goingCount,
   notGoingCount,
@@ -35,6 +53,8 @@ export function EventMenu({
   isAdmin?: boolean;
   canBook: boolean;
   canCancel: boolean;
+  canEdit?: boolean;
+  editDefaults?: EventEditDefaults;
   lockOptions?: { id: string; label: string }[];
   goingCount?: number;
   notGoingCount?: number;
@@ -44,15 +64,18 @@ export function EventMenu({
   const router = useRouter();
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const href = `/app/c/${slug}/events/${eventId}`;
   const canLock = Boolean(isAdmin && lockOptions && lockOptions.length > 0);
   const showGuests = canAddGuest || Boolean(isAdmin && guests && guests.length > 0);
-  const hasItems = showDetails || canVote || showGuests || canLock || canBook || canCancel;
+  const showEdit = Boolean(canEdit && editDefaults);
+  const hasItems = showDetails || canVote || showGuests || canLock || canBook || canCancel || showEdit;
   if (!hasItems) return null;
 
   function open(next: Panel) {
     setPanel(next);
     setMenu(false);
+    setEditError(null);
   }
 
   return (
@@ -86,6 +109,11 @@ export function EventMenu({
         {showGuests && (
           <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("guest")}>
             {canAddGuest ? "Add guest" : "Guests"}
+          </button>
+        )}
+        {showEdit && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("edit")}>
+            Edit event
           </button>
         )}
         {canLock && (
@@ -148,6 +176,87 @@ export function EventMenu({
         </Modal>
       )}
 
+      {panel === "edit" && showEdit && editDefaults && (
+        <Modal eyebrow="Edit" title="Edit event" onClose={() => setPanel(null)}>
+          <form
+            className="space-y-3"
+            action={async (formData) => {
+              const result = await updateWeeklyEvent(formData);
+              if (result?.error) {
+                setEditError(result.error);
+                return;
+              }
+              setPanel(null);
+              router.refresh();
+            }}
+          >
+            <input type="hidden" name="eventId" value={eventId} />
+            <Field label="Title">
+              <Input name="title" required defaultValue={editDefaults.title} />
+            </Field>
+            <Field label="Pitch">
+              <Input name="location" defaultValue={editDefaults.location} />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Minimum players">
+                <Input name="minPlayers" type="number" min={2} defaultValue={editDefaults.minPlayers} />
+              </Field>
+              <Field label="Maximum players">
+                <Input
+                  name="maxPlayers"
+                  type="number"
+                  min={2}
+                  defaultValue={editDefaults.maxPlayers ?? ""}
+                  placeholder="Optional"
+                />
+              </Field>
+            </div>
+            {!editDefaults.paymentLocked && (
+              <Field label="Payment timing">
+                <Select name="paymentMode" defaultValue={editDefaults.paymentMode}>
+                  <option value="postpay">Post-paid — split after the session</option>
+                  <option value="prepaid">Pre-paid — request payment after booking</option>
+                </Select>
+              </Field>
+            )}
+            {editDefaults.status !== "polling" && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Date">
+                    <Input name="startDate" type="date" required defaultValue={editDefaults.startDate} />
+                  </Field>
+                  <Field label="Kickoff time">
+                    <Input name="startTime" type="time" defaultValue={editDefaults.hasTime ? editDefaults.startTime : ""} />
+                  </Field>
+                </div>
+                <p className="-mt-1 text-xs text-ink/45">Leave time blank if only the day is fixed.</p>
+                <Field label="Presence deadline">
+                  <Input name="rsvpDeadlineAt" type="datetime-local" defaultValue={editDefaults.rsvpDeadlineAt} />
+                </Field>
+              </>
+            )}
+            <fieldset className="space-y-2 rounded-2xl border border-line p-3">
+              <legend className="px-1 text-xs uppercase tracking-wider text-ink/50">Duration (optional)</legend>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Hours">
+                  <Input name="durationHours" type="number" min={0} max={12} defaultValue={editDefaults.durationHours} placeholder="—" />
+                </Field>
+                <Field label="Minutes">
+                  <Select name="durationMinutes" defaultValue={editDefaults.durationMinutes || "0"}>
+                    <option value="0">0</option>
+                    <option value="15">15</option>
+                    <option value="30">30</option>
+                    <option value="45">45</option>
+                  </Select>
+                </Field>
+              </div>
+            </fieldset>
+            {editError && <p className="text-sm text-clay">{editError}</p>}
+            <SubmitButton>Save changes</SubmitButton>
+          </form>
+        </Modal>
+      )}
+
       {panel === "lock" && canLock && lockOptions && (
         <Modal eyebrow="Time" title="Lock a kickoff" onClose={() => setPanel(null)}>
           <form
@@ -191,7 +300,7 @@ export function EventMenu({
         <Modal eyebrow="Cancel" title="Cancel this event?" onClose={() => setPanel(null)}>
           <form
             className="space-y-3"
-            action={async (formData) => {
+            action={async () => {
               await cancelWeeklyEvent(eventId);
               setPanel(null);
               router.refresh();

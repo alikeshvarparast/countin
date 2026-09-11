@@ -25,7 +25,9 @@ export function CreatePlayForm({
         >
           <p className="text-xs uppercase tracking-[0.18em] text-primary">Single session</p>
           <h3 className="mt-1 font-display text-lg">One night</h3>
-          <p className="mt-1 text-sm text-ink/55">A one-off kickabout. Pick a date, or start with a time poll.</p>
+          <p className="mt-1 text-sm text-ink/55">
+            A one-off kickabout. Date alone is enough — time and duration can come later.
+          </p>
         </button>
         {canCreateSeason ? (
           <button

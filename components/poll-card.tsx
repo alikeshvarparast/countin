@@ -5,7 +5,17 @@ import { useRouter } from "next/navigation";
 import { MoreHorizontal, X } from "lucide-react";
 import { voteClubPoll } from "@/lib/actions/club";
 import { votePoll } from "@/lib/actions/weekly";
-import { acceptPollSuggestion, addPollOption, adminDeleteVote, adminSetVote, deletePoll, suggestPollOption } from "@/lib/actions/polls";
+import {
+  acceptPollSuggestion,
+  addPollOption,
+  adminDeleteVote,
+  adminSetVote,
+  deletePoll,
+  removePollOption,
+  suggestPollOption,
+  updatePoll,
+  updatePollOption,
+} from "@/lib/actions/polls";
 import { ActionMenu } from "@/components/action-menu";
 import { SubmitButton } from "@/components/submit-button";
 import { cn, formatWhen } from "@/lib/utils";
@@ -38,6 +48,7 @@ export function PollCard({
   pollId,
   question,
   closesLabel,
+  closesAtDefault,
   options,
   voters,
   history,
@@ -52,6 +63,7 @@ export function PollCard({
   pollId: string;
   question: string;
   closesLabel?: string | null;
+  closesAtDefault?: string;
   options: { id: string; label: string; votes: number; mine?: boolean }[];
   voters: PollVoter[];
   history: PollHistory[];
@@ -69,6 +81,7 @@ export function PollCard({
   const [changing, setChanging] = useState(!myOption);
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<"details" | "suggest" | "admin" | "delete" | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const total = options.reduce((s, o) => s + o.votes, 0) || 1;
 
   return (
@@ -90,31 +103,67 @@ export function PollCard({
             <MoreHorizontal className="h-4 w-4" />
           </button>
           <ActionMenu open={menu} onClose={() => setMenu(false)}>
-                {canSeeDetails && (
-                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setPanel("details"); setMenu(false); }}>
-                    See details
-                  </button>
-                )}
-                {canVote && myOption && (
-                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setChanging(true); setMenu(false); }}>
-                    Change the vote
-                  </button>
-                )}
-                {canVote && !staff && (
-                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setPanel("suggest"); setMenu(false); }}>
-                    Suggest an option
-                  </button>
-                )}
-                {staff && (
-                  <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => { setPanel("admin"); setMenu(false); }}>
-                    Edit
-                  </button>
-                )}
-                {staff && (
-                  <button type="button" className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted" onClick={() => { setPanel("delete"); setMenu(false); }}>
-                    Delete
-                  </button>
-                )}
+            {canSeeDetails && (
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+                onClick={() => {
+                  setPanel("details");
+                  setMenu(false);
+                }}
+              >
+                See details
+              </button>
+            )}
+            {canVote && myOption && (
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+                onClick={() => {
+                  setChanging(true);
+                  setMenu(false);
+                }}
+              >
+                Change the vote
+              </button>
+            )}
+            {canVote && !staff && (
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+                onClick={() => {
+                  setPanel("suggest");
+                  setMenu(false);
+                }}
+              >
+                Suggest an option
+              </button>
+            )}
+            {staff && (
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+                onClick={() => {
+                  setEditError(null);
+                  setPanel("admin");
+                  setMenu(false);
+                }}
+              >
+                Edit
+              </button>
+            )}
+            {staff && (
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted"
+                onClick={() => {
+                  setPanel("delete");
+                  setMenu(false);
+                }}
+              >
+                Delete
+              </button>
+            )}
           </ActionMenu>
         </div>
       </div>
@@ -165,13 +214,20 @@ export function PollCard({
       )}
 
       {panel === "details" && canSeeDetails && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby={`poll-details-${pollId}`}>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`poll-details-${pollId}`}
+        >
           <button type="button" className="absolute inset-0 bg-ink/40" aria-label="Close details" onClick={() => setPanel(null)} />
           <div className="relative z-10 max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-line bg-card p-5 shadow-[0_24px_64px_rgba(63,58,52,0.2)]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-secondary">Poll details</p>
-                <h4 id={`poll-details-${pollId}`} className="mt-1 font-display text-lg">{question}</h4>
+                <h4 id={`poll-details-${pollId}`} className="mt-1 font-display text-lg">
+                  {question}
+                </h4>
               </div>
               <button
                 type="button"
@@ -274,9 +330,103 @@ export function PollCard({
       {panel === "admin" && staff && (
         <div className="mt-4 space-y-3 rounded-xl border border-line bg-muted p-3 text-sm">
           <form
+            className="space-y-2 rounded-xl border border-line bg-card p-3"
+            action={async (formData) => {
+              const result = await updatePoll(formData);
+              if (result?.error) {
+                setEditError(result.error);
+                return;
+              }
+              setEditError(null);
+              router.refresh();
+            }}
+          >
+            <input type="hidden" name="kind" value={kind} />
+            <input type="hidden" name="pollId" value={pollId} />
+            <label className="block space-y-1">
+              <span className="text-xs uppercase tracking-wider text-ink/50">Question</span>
+              <input
+                name="question"
+                required
+                defaultValue={question}
+                className="h-11 w-full rounded-xl border border-line bg-card px-3 text-sm"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase tracking-wider text-ink/50">Closes (optional)</span>
+              <input
+                name="closesAt"
+                type="datetime-local"
+                defaultValue={closesAtDefault ?? ""}
+                className="h-11 w-full rounded-xl border border-line bg-card px-3 text-sm"
+              />
+            </label>
+            <SubmitButton className="w-full">Save poll</SubmitButton>
+          </form>
+
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-wider text-ink/50">Options</p>
+            {options.map((opt) => (
+              <div key={opt.id} className="space-y-2 rounded-xl border border-line bg-card p-2">
+                <form
+                  className="flex flex-wrap gap-2"
+                  action={async (formData) => {
+                    const result = await updatePollOption(formData);
+                    if (result?.error) {
+                      setEditError(result.error);
+                      return;
+                    }
+                    setEditError(null);
+                    router.refresh();
+                  }}
+                >
+                  <input type="hidden" name="kind" value={kind} />
+                  <input type="hidden" name="optionId" value={opt.id} />
+                  <input
+                    name="label"
+                    required
+                    defaultValue={opt.label}
+                    className="h-9 min-w-0 max-w-full flex-1 rounded-lg border border-line bg-card px-2 text-sm"
+                  />
+                  <SubmitButton variant="ghost" className="h-9 px-3 text-xs">
+                    Save
+                  </SubmitButton>
+                </form>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-ink/45">{opt.votes} vote{opt.votes === 1 ? "" : "s"}</span>
+                  {options.length > 2 && (
+                    <form
+                      action={async (formData) => {
+                        const result = await removePollOption(formData);
+                        if (result?.error) {
+                          setEditError(result.error);
+                          return;
+                        }
+                        setEditError(null);
+                        router.refresh();
+                      }}
+                    >
+                      <input type="hidden" name="kind" value={kind} />
+                      <input type="hidden" name="optionId" value={opt.id} />
+                      <SubmitButton variant="danger" className="h-8 px-3 text-xs">
+                        Remove
+                      </SubmitButton>
+                    </form>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <form
             className="space-y-2 rounded-xl border border-line bg-card p-2"
             action={async (formData) => {
-              await addPollOption(formData);
+              const result = await addPollOption(formData);
+              if (result?.error) {
+                setEditError(result.error);
+                return;
+              }
+              setEditError(null);
               router.refresh();
             }}
           >
@@ -285,6 +435,7 @@ export function PollCard({
             <input
               name="label"
               required
+              type={kind === "event" ? "datetime-local" : "text"}
               placeholder={kind === "event" ? "Add a kickoff time" : "Add an option"}
               className="h-11 w-full rounded-xl border border-line bg-card px-3 text-sm"
             />
@@ -292,6 +443,10 @@ export function PollCard({
               Add option
             </SubmitButton>
           </form>
+
+          {editError && <p className="text-clay">{editError}</p>}
+
+          <p className="pt-1 text-xs uppercase tracking-wider text-ink/50">Votes</p>
           {voters.length === 0 && <p className="text-ink/50">No votes to edit.</p>}
           {voters.map((v) => (
             <div key={v.userId} className="flex flex-col gap-2 rounded-xl border border-line bg-card p-2">

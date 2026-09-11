@@ -96,13 +96,13 @@ export function WeeklyEventForm({
         </>
       )}
       <fieldset className="space-y-3 rounded-2xl border border-line p-3">
-        <legend className="px-1 text-xs uppercase tracking-wider text-ink/50">Duration</legend>
+        <legend className="px-1 text-xs uppercase tracking-wider text-ink/50">Duration (optional)</legend>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Hours">
-            <Input name="durationHours" type="number" min={0} max={12} defaultValue={1} required />
+            <Input name="durationHours" type="number" min={0} max={12} placeholder="—" />
           </Field>
           <Field label="Minutes">
-            <Select name="durationMinutes" defaultValue="30">
+            <Select name="durationMinutes" defaultValue="0">
               <option value="0">0</option>
               <option value="15">15</option>
               <option value="30">30</option>
@@ -110,7 +110,7 @@ export function WeeklyEventForm({
             </Select>
           </Field>
         </div>
-        <p className="text-xs text-ink/45">How long you will play. Default is 1 hour 30 minutes.</p>
+        <p className="text-xs text-ink/45">Optional. Leave blank if you only know the date for now.</p>
       </fieldset>
       <p className="text-xs text-ink/45">Costs can be posted later, after you know who showed up.</p>
       {error && <p className="text-sm text-clay">{error}</p>}

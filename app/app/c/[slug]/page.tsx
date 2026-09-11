@@ -26,7 +26,7 @@ import {
   users,
   pollSuggestions,
 } from "@/lib/db/schema";
-import { eventWindowEnd, formatWhen, pendingRequestLabel, sessionSlotIsGoing } from "@/lib/utils";
+import { eventWindowEnd, formatWhen, msToLocalInput, pendingRequestLabel, sessionSlotIsGoing, weeklyEventEditDefaults } from "@/lib/utils";
 import { listVoteHistory } from "@/lib/votes";
 import { goingHeadcount } from "@/lib/ledger";
 import { notFound } from "next/navigation";
@@ -306,6 +306,12 @@ export default async function CommunityOverviewPage({
         isAdmin={admin}
         canBook={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
         canCancel={Boolean(admin && e.status !== "cancelled")}
+        canEdit={Boolean(admin && e.status !== "cancelled" && e.status !== "completed")}
+        editDefaults={
+          admin && e.status !== "cancelled" && e.status !== "completed"
+            ? weeklyEventEditDefaults(e, timeZone, clubLocation ?? "")
+            : undefined
+        }
         guestCount={guestCount}
         guests={guests}
         pendingGuests={pendingGuests}
@@ -361,6 +367,7 @@ export default async function CommunityOverviewPage({
                   kind={poll.kind}
                   question={poll.question}
                   closesLabel={poll.closesAt ? `Closes ${formatWhen(poll.closesAt, community.timezone)}` : null}
+                  closesAtDefault={msToLocalInput(poll.closesAt)}
                   options={poll.options}
                   voters={poll.voters}
                   history={poll.history}

@@ -23,7 +23,7 @@ import {
   votes,
   weeklyEvents,
 } from "@/lib/db/schema";
-import { eventWindowEnd, fieldBookedLabel, formatEventWhen, formatMoney, formatWhen } from "@/lib/utils";
+import { eventWindowEnd, fieldBookedLabel, formatEventWhen, formatMoney, formatWhen, msToLocalInput, weeklyEventEditDefaults } from "@/lib/utils";
 import { goingHeadcount } from "@/lib/ledger";
 import { eventLedgerAllSettled } from "@/lib/ledger-status";
 import { listVoteHistory } from "@/lib/votes";
@@ -142,6 +142,12 @@ export default async function WeeklyEventPage({
             isAdmin={admin}
             canBook={canBook}
             canCancel={canCancel}
+            canEdit={Boolean(admin && event.status !== "cancelled" && event.status !== "completed")}
+            editDefaults={
+              admin && event.status !== "cancelled" && event.status !== "completed"
+                ? weeklyEventEditDefaults(event, community.timezone, community.location ?? "")
+                : undefined
+            }
             lockOptions={admin && event.status === "polling" ? options.map((o) => ({ id: o.id, label: o.label })) : undefined}
             goingCount={going.length}
             notGoingCount={notGoing.length}
@@ -158,6 +164,7 @@ export default async function WeeklyEventPage({
           kind="event"
           question={poll.question}
           closesLabel={poll.closesAt ? `Closes ${formatWhen(poll.closesAt, community.timezone)}` : null}
+          closesAtDefault={msToLocalInput(poll.closesAt)}
           options={options.map((o) => ({
             id: o.id,
             label: o.label,

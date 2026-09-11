@@ -18,6 +18,15 @@ function zonedWallClock(ms: number, timeZone: string) {
   };
 }
 
+export function msToZonedDateAndTime(ms: number, timeZone: string) {
+  const wall = zonedWallClock(ms, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${wall.year}-${pad(wall.month)}-${pad(wall.day)}`,
+    time: `${pad(wall.hour)}:${pad(wall.minute)}`,
+  };
+}
+
 export function zonedDateTimeToUtcMs(
   dateYmd: string,
   timeHm: string,
