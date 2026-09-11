@@ -14,6 +14,7 @@ export function PresenceVote({
   canVote,
   onDone,
   forceEdit,
+  returnTo,
 }: {
   eventId: string;
   myStatus?: string | null;
@@ -22,6 +23,7 @@ export function PresenceVote({
   canVote: boolean;
   onDone?: () => void;
   forceEdit?: boolean;
+  returnTo?: string;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState(myStatus ?? "");
@@ -69,12 +71,13 @@ export function PresenceVote({
             await setRsvp(formData);
             setChanging(false);
             onDone?.();
+            if (returnTo) router.push(returnTo);
             router.refresh();
           }}
         >
           <input type="hidden" name="eventId" value={eventId} />
           <input type="hidden" name="status" value={selected} />
-          <SubmitButton size="sm" disabled={!selected}>
+          <SubmitButton size={returnTo ? "md" : "sm"} disabled={!selected} className={returnTo ? "w-full" : undefined}>
             Submit
           </SubmitButton>
         </form>

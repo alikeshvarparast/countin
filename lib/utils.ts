@@ -258,6 +258,14 @@ export function safeNextPath(raw: unknown) {
   return value;
 }
 
+/** Stay inside this club when returning from an action page. */
+export function clubSafeReturnPath(raw: unknown, slug: string, fallback: string) {
+  const path = safeNextPath(raw);
+  const prefix = `/app/c/${slug}`;
+  if (path === prefix || path.startsWith(`${prefix}/`)) return path;
+  return fallback;
+}
+
 export function pendingRequestLabel(guestPending: number, occasionalPending = 0) {
   const parts: string[] = [];
   if (guestPending > 0) {

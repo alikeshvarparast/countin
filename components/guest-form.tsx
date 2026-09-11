@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { addEventGuest } from "@/lib/actions/weekly";
 import { Field, Input } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 
 export function GuestForm({ eventId, sessionId }: { eventId?: string; sessionId?: string }) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   return (
     <form
@@ -13,6 +15,7 @@ export function GuestForm({ eventId, sessionId }: { eventId?: string; sessionId?
       action={async (formData) => {
         const result = await addEventGuest(formData);
         setError(result?.error ?? null);
+        if (!result?.error) router.refresh();
       }}
     >
       {eventId && <input type="hidden" name="eventId" value={eventId} />}

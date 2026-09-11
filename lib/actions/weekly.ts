@@ -2,7 +2,6 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { requireUser } from "@/auth";
 import {
   getCommunityBySlug,
@@ -586,7 +585,8 @@ export async function cancelWeeklyEvent(eventId: string) {
   );
   revalidatePath(`/app/c/${community.slug}`);
   revalidatePath(`/app/c/${community.slug}/events`);
-  redirect(`/app/c/${community.slug}`);
+  revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+  return { ok: true, slug: community.slug };
 }
 
 export async function saveEventCostSettings(formData: FormData) {

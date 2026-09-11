@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { DateTile, statusBadgeTone } from "@/components/event-card";
-import { EventMenu, type EventEditDefaults } from "@/components/event-menu";
+import { EventMenu } from "@/components/event-menu";
 import { PresenceVote } from "@/components/presence-vote";
 import { Badge } from "@/components/ui";
 import { cn, formatEventTimeLine } from "@/lib/utils";
@@ -27,10 +27,8 @@ export function EventHomeCard({
   canBook,
   canCancel,
   canEdit,
-  editDefaults,
   lockOptions,
   guestCount,
-  guests,
   pendingGuests = 0,
   needsVote,
 }: {
@@ -53,10 +51,8 @@ export function EventHomeCard({
   canBook: boolean;
   canCancel: boolean;
   canEdit?: boolean;
-  editDefaults?: EventEditDefaults;
   lockOptions?: { id: string; label: string }[];
   guestCount: number;
-  guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
   pendingGuests?: number;
   needsVote?: boolean;
 }) {
@@ -97,17 +93,12 @@ export function EventHomeCard({
                 slug={slug}
                 eventId={eventId}
                 canVote={canVote}
-                myStatus={myStatus}
                 canAddGuest={canAddGuest}
                 isAdmin={isAdmin}
                 canBook={canBook}
                 canCancel={canCancel}
                 canEdit={canEdit}
-                editDefaults={editDefaults}
                 lockOptions={lockOptions}
-                goingCount={goingCount}
-                notGoingCount={notGoingCount}
-                guests={guests}
               />
             </div>
           </div>

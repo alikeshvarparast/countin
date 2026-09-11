@@ -1,81 +1,56 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
-import { cancelWeeklyEvent, confirmFieldBooked, lockPollTime, removeEventGuest, updateWeeklyEvent } from "@/lib/actions/weekly";
+import { cancelWeeklyEvent, lockPollTime } from "@/lib/actions/weekly";
 import { ActionMenu } from "@/components/action-menu";
-import { GuestForm } from "@/components/guest-form";
-import { PresenceVote } from "@/components/presence-vote";
-import { Field, Input, Modal, Select } from "@/components/ui";
+import { Field, Input, Modal } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 
-type Panel = "presence" | "guest" | "book" | "cancel" | "lock" | "edit" | null;
-
-export type EventEditDefaults = {
-  title: string;
-  location: string;
-  minPlayers: number;
-  maxPlayers: number | null;
-  paymentMode: "postpay" | "prepaid";
-  status: string;
-  startDate: string;
-  startTime: string;
-  hasTime: boolean;
-  durationHours: string;
-  durationMinutes: string;
-  rsvpDeadlineAt: string;
-  paymentLocked?: boolean;
-};
+type Panel = "cancel" | "lock" | null;
 
 export function EventMenu({
   slug,
   eventId,
   canVote,
-  myStatus,
   canAddGuest,
   isAdmin,
   canBook,
   canCancel,
   canEdit,
-  editDefaults,
   lockOptions,
-  goingCount,
-  notGoingCount,
-  guests,
   showDetails = true,
 }: {
   slug: string;
   eventId: string;
   canVote?: boolean;
-  myStatus?: string | null;
   canAddGuest: boolean;
   isAdmin?: boolean;
   canBook: boolean;
   canCancel: boolean;
   canEdit?: boolean;
-  editDefaults?: EventEditDefaults;
   lockOptions?: { id: string; label: string }[];
-  goingCount?: number;
-  notGoingCount?: number;
-  guests?: { id: string; label: string; hostName: string; canRemove: boolean; status?: string }[];
   showDetails?: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
-  const [editError, setEditError] = useState<string | null>(null);
   const href = `/app/c/${slug}/events/${eventId}`;
   const canLock = Boolean(isAdmin && lockOptions && lockOptions.length > 0);
-  const showGuests = canAddGuest || Boolean(isAdmin && guests && guests.length > 0);
-  const showEdit = Boolean(canEdit && editDefaults);
-  const hasItems = showDetails || canVote || showGuests || canLock || canBook || canCancel || showEdit;
+  const showGuests = Boolean(canAddGuest || isAdmin);
+  const hasItems = showDetails || canVote || showGuests || canLock || canBook || canCancel || canEdit;
   if (!hasItems) return null;
 
-  function open(next: Panel) {
-    setPanel(next);
+  function withReturn(path: string) {
+    if (!pathname) return path;
+    return `${path}?returnTo=${encodeURIComponent(pathname)}`;
+  }
+
+  function go(path: string) {
     setMenu(false);
-    setEditError(null);
+    router.push(withReturn(path));
   }
 
   return (
@@ -102,160 +77,50 @@ export function EventMenu({
           </button>
         )}
         {canVote && (
-          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("presence")}>
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => go(`${href}/presence`)}>
             Change presence
           </button>
         )}
         {showGuests && (
-          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("guest")}>
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => go(`${href}/guests`)}>
             {canAddGuest ? "Add guest" : "Guests"}
           </button>
         )}
-        {showEdit && (
-          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("edit")}>
+        {canEdit && (
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => go(`${href}/edit`)}>
             Edit event
           </button>
         )}
         {canLock && (
-          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("lock")}>
+          <button
+            type="button"
+            className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+            onClick={() => {
+              setPanel("lock");
+              setMenu(false);
+            }}
+          >
             Lock a time
           </button>
         )}
         {canBook && (
-          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => open("book")}>
+          <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => go(`${href}/book`)}>
             Mark field booked
           </button>
         )}
         {canCancel && (
-          <button type="button" className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted" onClick={() => open("cancel")}>
+          <button
+            type="button"
+            className="block w-full px-3 py-2.5 text-left text-clay hover:bg-muted"
+            onClick={() => {
+              setPanel("cancel");
+              setMenu(false);
+            }}
+          >
             Cancel event
           </button>
         )}
       </ActionMenu>
-
-      {panel === "presence" && canVote && (
-        <Modal eyebrow="Presence" title="Are you going?" onClose={() => setPanel(null)}>
-          <PresenceVote
-            eventId={eventId}
-            myStatus={myStatus}
-            goingCount={goingCount ?? 0}
-            notGoingCount={notGoingCount ?? 0}
-            canVote
-            forceEdit
-            onDone={() => setPanel(null)}
-          />
-        </Modal>
-      )}
-
-      {panel === "guest" && showGuests && (
-        <Modal eyebrow="Guests" title="Guest list" onClose={() => setPanel(null)}>
-          {canAddGuest && <GuestForm eventId={eventId} />}
-          {guests && guests.length > 0 && (
-            <ul className="mt-3 space-y-2 text-sm">
-              {guests.map((g) => (
-                <li key={g.id} className="flex items-center justify-between gap-2">
-                  <span>
-                    {g.label} <span className="text-ink/45">· {g.hostName}</span>
-                  </span>
-                  {g.canRemove && (
-                    <form
-                      action={async () => {
-                        await removeEventGuest(g.id);
-                        router.refresh();
-                      }}
-                    >
-                      <SubmitButton variant="ghost" className="h-8 px-2 text-xs">
-                        Remove
-                      </SubmitButton>
-                    </form>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Modal>
-      )}
-
-      {panel === "edit" && showEdit && editDefaults && (
-        <Modal eyebrow="Edit" title="Edit event" onClose={() => setPanel(null)}>
-          <form
-            className="space-y-3"
-            action={async (formData) => {
-              const result = await updateWeeklyEvent(formData);
-              if (result?.error) {
-                setEditError(result.error);
-                return;
-              }
-              setPanel(null);
-              router.refresh();
-            }}
-          >
-            <input type="hidden" name="eventId" value={eventId} />
-            <Field label="Title">
-              <Input name="title" required defaultValue={editDefaults.title} />
-            </Field>
-            <Field label="Pitch">
-              <Input name="location" defaultValue={editDefaults.location} />
-            </Field>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Minimum players">
-                <Input name="minPlayers" type="number" min={2} defaultValue={editDefaults.minPlayers} />
-              </Field>
-              <Field label="Maximum players">
-                <Input
-                  name="maxPlayers"
-                  type="number"
-                  min={2}
-                  defaultValue={editDefaults.maxPlayers ?? ""}
-                  placeholder="Optional"
-                />
-              </Field>
-            </div>
-            {!editDefaults.paymentLocked && (
-              <Field label="Payment timing">
-                <Select name="paymentMode" defaultValue={editDefaults.paymentMode}>
-                  <option value="postpay">Post-paid — split after the session</option>
-                  <option value="prepaid">Pre-paid — request payment after booking</option>
-                </Select>
-              </Field>
-            )}
-            {editDefaults.status !== "polling" && (
-              <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Date">
-                    <Input name="startDate" type="date" required defaultValue={editDefaults.startDate} />
-                  </Field>
-                  <Field label="Kickoff time">
-                    <Input name="startTime" type="time" defaultValue={editDefaults.hasTime ? editDefaults.startTime : ""} />
-                  </Field>
-                </div>
-                <p className="-mt-1 text-xs text-ink/45">Leave time blank if only the day is fixed.</p>
-                <Field label="Presence deadline">
-                  <Input name="rsvpDeadlineAt" type="datetime-local" defaultValue={editDefaults.rsvpDeadlineAt} />
-                </Field>
-              </>
-            )}
-            <fieldset className="space-y-2 rounded-2xl border border-line p-3">
-              <legend className="px-1 text-xs uppercase tracking-wider text-ink/50">Duration (optional)</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Hours">
-                  <Input name="durationHours" type="number" min={0} max={12} defaultValue={editDefaults.durationHours} placeholder="—" />
-                </Field>
-                <Field label="Minutes">
-                  <Select name="durationMinutes" defaultValue={editDefaults.durationMinutes || "0"}>
-                    <option value="0">0</option>
-                    <option value="15">15</option>
-                    <option value="30">30</option>
-                    <option value="45">45</option>
-                  </Select>
-                </Field>
-              </div>
-            </fieldset>
-            {editError && <p className="text-sm text-clay">{editError}</p>}
-            <SubmitButton>Save changes</SubmitButton>
-          </form>
-        </Modal>
-      )}
 
       {panel === "lock" && canLock && lockOptions && (
         <Modal eyebrow="Time" title="Lock a kickoff" onClose={() => setPanel(null)}>
@@ -282,27 +147,16 @@ export function EventMenu({
         </Modal>
       )}
 
-      {panel === "book" && canBook && (
-        <Modal eyebrow="Field" title="Mark field booked?" onClose={() => setPanel(null)}>
-          <form
-            action={async () => {
-              await confirmFieldBooked(eventId);
-              setPanel(null);
-              router.refresh();
-            }}
-          >
-            <SubmitButton>Confirm booked</SubmitButton>
-          </form>
-        </Modal>
-      )}
-
       {panel === "cancel" && canCancel && (
         <Modal eyebrow="Cancel" title="Cancel this event?" onClose={() => setPanel(null)}>
           <form
             className="space-y-3"
             action={async () => {
-              await cancelWeeklyEvent(eventId);
+              const result = await cancelWeeklyEvent(eventId);
               setPanel(null);
+              if (result && "slug" in result && result.slug) {
+                router.push(`/app/c/${result.slug}`);
+              }
               router.refresh();
             }}
           >
