@@ -14,6 +14,7 @@ import { contracts, seasonSessions, seasonSignups, seasons, sessionSlots, users 
 import { PageFrame } from "@/components/page-frame";
 import { formatDuration, formatEventWhen, formatMoney, formatWhen, WEEKDAY_LABELS } from "@/lib/utils";
 import { seasonFirstPaymentAmountCents, seasonPaymentPeriodWeeks } from "@/lib/season-billing";
+import { syncSeasonPaymentInstallments } from "@/lib/season-payments";
 
 export default async function SeasonDetailPage({
   params,
@@ -234,7 +235,6 @@ export default async function SeasonDetailPage({
             firstPaymentLastWeeks={season.firstPaymentExtraWeeks ?? 0}
             paymentInfo={season.paymentInfo}
             collectorUserId={season.collectorUserId}
-            paymentRequestedAt={season.paymentRequestedAt}
             homeVisibleWeeks={season.homeVisibleWeeks ?? 4}
             members={listApprovedMembers(community.id).map((m) => ({ userId: m.userId, name: m.name }))}
             canRequestPayment={Boolean(
@@ -243,6 +243,19 @@ export default async function SeasonDetailPage({
                 (season.paymentPeriodWeeks || season.prepaidSessionCount) &&
                 season.paymentInfo,
             )}
+            installments={
+              season.regularPriceCents > 0 && (season.paymentPeriodWeeks || season.prepaidSessionCount)
+                ? syncSeasonPaymentInstallments(season).map((row) => ({
+                    id: row.id,
+                    installmentIndex: row.installmentIndex,
+                    label: row.label,
+                    amountCents: row.amountCents,
+                    dueAt: row.dueAt,
+                    status: row.status,
+                    requestedAt: row.requestedAt,
+                  }))
+                : []
+            }
           />
         </Card>
       )}

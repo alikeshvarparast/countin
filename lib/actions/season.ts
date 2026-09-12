@@ -20,6 +20,7 @@ import {
   contracts,
   invitations,
   ledgerEntries,
+  seasonPaymentInstallments,
   seasonSessions,
   seasonSignups,
   seasons,
@@ -29,7 +30,8 @@ import {
 import { createId, now } from "@/lib/id";
 import { notify, notifyMany } from "@/lib/notify";
 import { eachSeasonDate, zonedDateTimeToUtcMs } from "@/lib/timezone";
-import { seasonFirstPaymentAmountCents, seasonFirstPaymentExtraSessions, sessionsFromPaymentPeriodWeeks, buildSeasonPaymentSchedule } from "@/lib/season-billing";
+import { buildSeasonPaymentSchedule, sessionsFromPaymentPeriodWeeks } from "@/lib/season-billing";
+import { syncSeasonPaymentInstallments, syncSeasonPrepayLedger } from "@/lib/season-payments";
 import { formatMoney, localInputToMs, parseDurationMinutes, formatEventWhen } from "@/lib/utils";
 
 function communityPath(slug: string, rest = "") {
@@ -197,9 +199,8 @@ export async function updateSeasonRates(formData: FormData) {
     .run();
 
   const updated = db.select().from(seasons).where(eq(seasons.id, seasonId)).get()!;
-  if (updated.paymentRequestedAt) {
-    syncSeasonPrepayLedger(updated);
-  }
+  syncSeasonPaymentInstallments(updated);
+  syncSeasonPrepayLedger(updated);
 
   audit({
     communityId: season.communityId,
@@ -218,95 +219,88 @@ export async function updateSeasonRates(formData: FormData) {
   return { ok: true };
 }
 
-function seasonPrepayAmountCents(season: typeof seasons.$inferSelect) {
-  return seasonFirstPaymentAmountCents(season);
-}
+export async function setInstallmentDueAt(formData: FormData) {
+  const user = await requireUser();
+  const installmentId = String(formData.get("installmentId") ?? "");
+  const dueRaw = String(formData.get("dueAt") ?? "").trim();
+  const row = db.select().from(seasonPaymentInstallments).where(eq(seasonPaymentInstallments.id, installmentId)).get();
+  if (!row) return { error: "Installment not found." };
+  const season = db.select().from(seasons).where(eq(seasons.id, row.seasonId)).get();
+  if (!season) return { error: "Season not found." };
+  requireAdmin(season.communityId, user.id);
 
-/** Keep pending/claimed season prepay rows aligned with current contract list and rates. */
-function syncSeasonPrepayLedger(season: typeof seasons.$inferSelect) {
-  if (!season.paymentRequestedAt) return;
-  const amountCents = seasonPrepayAmountCents(season);
-  if (amountCents == null) return;
-  const collectorId = season.collectorUserId ?? primaryAdminId(season.communityId);
-  const contractPlayers = db.select().from(contracts).where(eq(contracts.seasonId, season.id)).all();
-  const contractIds = new Set(contractPlayers.map((c) => c.userId));
-  const existing = db
-    .select()
-    .from(ledgerEntries)
-    .where(and(eq(ledgerEntries.seasonId, season.id), eq(ledgerEntries.reason, "contract_prepay")))
-    .all();
-
-  for (const row of existing) {
-    if (row.status === "settled") continue;
-    if (!contractIds.has(row.fromUserId) || row.fromUserId === collectorId) {
-      db.delete(ledgerEntries).where(eq(ledgerEntries.id, row.id)).run();
-      continue;
-    }
-    if (row.amountCents !== amountCents || row.toUserId !== collectorId) {
-      db.update(ledgerEntries)
-        .set({ amountCents, toUserId: collectorId })
-        .where(eq(ledgerEntries.id, row.id))
-        .run();
-    }
+  let dueAt: number | null = null;
+  if (dueRaw) {
+    // date input YYYY-MM-DD → local noon
+    const ms = localInputToMs(dueRaw.includes("T") ? dueRaw : `${dueRaw}T12:00`);
+    if (!Number.isFinite(ms)) return { error: "Invalid due date." };
+    dueAt = ms;
   }
 
-  const openFrom = new Set(
-    existing
-      .filter((r) => r.status !== "settled" && contractIds.has(r.fromUserId))
-      .map((r) => r.fromUserId),
-  );
-  const settledFrom = new Set(existing.filter((r) => r.status === "settled").map((r) => r.fromUserId));
-  const t = now();
-  for (const row of contractPlayers) {
-    if (row.userId === collectorId) continue;
-    if (openFrom.has(row.userId) || settledFrom.has(row.userId)) continue;
-    db.insert(ledgerEntries)
-      .values({
-        id: createId(),
-        communityId: season.communityId,
-        fromUserId: row.userId,
-        toUserId: collectorId,
-        amountCents,
-        reason: "contract_prepay",
-        status: "pending",
-        seasonId: season.id,
-        createdAt: t,
-      })
-      .run();
-  }
+  db.update(seasonPaymentInstallments)
+    .set({ dueAt, updatedAt: now() })
+    .where(eq(seasonPaymentInstallments.id, installmentId))
+    .run();
+
+  const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
+  if (community) revalidatePath(communityPath(community.slug, `/seasons/${season.id}`));
+  return { ok: true };
 }
 
-export async function sendSeasonPaymentRequest(formData: FormData) {
+export async function sendSeasonInstallmentPayment(formData: FormData) {
   const user = await requireUser();
   const seasonId = String(formData.get("seasonId") ?? "");
+  const installmentIdRaw = String(formData.get("installmentId") ?? "").trim();
   const season = db.select().from(seasons).where(eq(seasons.id, seasonId)).get();
   if (!season) return { error: "Season not found." };
   requireAdmin(season.communityId, user.id);
-  if (season.paymentRequestedAt) return { error: "Payment requests were already sent." };
   if (!season.regularPriceCents) return { error: "Set the contract rate first." };
   if (!season.paymentPeriodWeeks && !season.prepaidSessionCount) {
     return { error: "Set how often players pay (every N weeks)." };
   }
   if (!season.paymentInfo) return { error: "Add payment details first." };
-  const collectorId = season.collectorUserId ?? primaryAdminId(season.communityId);
+
   const contractPlayers = db.select().from(contracts).where(eq(contracts.seasonId, seasonId)).all();
   if (contractPlayers.length === 0) return { error: "No contract players yet." };
 
   const community = db.select().from(communities).where(eq(communities.id, season.communityId)).get();
   if (!community) return { error: "Community not found." };
-  const amountCents = seasonFirstPaymentAmountCents(season);
-  if (amountCents == null) return { error: "Could not calculate the first payment amount. Check season dates and payment weeks." };
-  const extraSessions = seasonFirstPaymentExtraSessions(season);
+
+  const installments = syncSeasonPaymentInstallments(season);
+  if (installments.length === 0) {
+    return { error: "Could not build the payment schedule. Check season dates and payment weeks." };
+  }
+
+  let target = installmentIdRaw
+    ? installments.find((row) => row.id === installmentIdRaw)
+    : installments.find((row) => row.status === "planned");
+
+  if (!target) return { error: "Installment not found." };
+  if (target.status === "requested") return { error: "That payment was already requested." };
+  if (target.status !== "planned") return { error: "That installment cannot be sent." };
+
+  // Only allow sending the next planned installment (no skipping).
+  const nextPlanned = installments.find((row) => row.status === "planned");
+  if (!nextPlanned || nextPlanned.id !== target.id) {
+    return { error: "Send the next unpaid installment first." };
+  }
+
+  const collectorId = season.collectorUserId ?? primaryAdminId(season.communityId);
   const collector =
     db.select().from(users).where(eq(users.id, collectorId)).get()?.name ?? "the collector";
   const t = now();
+  const amountCents = target.amountCents;
 
-  db.update(seasons).set({ paymentRequestedAt: t, collectorUserId: collectorId }).where(eq(seasons.id, seasonId)).run();
+  db.update(seasonPaymentInstallments)
+    .set({ status: "requested", requestedAt: t, updatedAt: t })
+    .where(eq(seasonPaymentInstallments.id, target.id))
+    .run();
 
-  const nightsLabel =
-    extraSessions > 0
-      ? `the first period plus ${season.firstPaymentExtraWeeks} last week${season.firstPaymentExtraWeeks === 1 ? "" : "s"} of the contract`
-      : `the first payment period`;
+  if (target.installmentIndex === 1 && !season.paymentRequestedAt) {
+    db.update(seasons).set({ paymentRequestedAt: t, collectorUserId: collectorId }).where(eq(seasons.id, seasonId)).run();
+  } else {
+    db.update(seasons).set({ collectorUserId: collectorId }).where(eq(seasons.id, seasonId)).run();
+  }
 
   for (const row of contractPlayers) {
     if (row.userId === collectorId) continue;
@@ -320,6 +314,8 @@ export async function sendSeasonPaymentRequest(formData: FormData) {
         reason: "contract_prepay",
         status: "pending",
         seasonId: season.id,
+        seasonPaymentInstallmentId: target.id,
+        installmentIndex: target.installmentIndex,
         createdAt: t,
       })
       .run();
@@ -327,8 +323,8 @@ export async function sendSeasonPaymentRequest(formData: FormData) {
       userId: row.userId,
       communityId: community.id,
       type: "cost_posted",
-      title: `Season payment due · ${season.name}`,
-      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collector} for ${nightsLabel}. ${season.paymentInfo}`,
+      title: `Season payment #${target.installmentIndex} · ${season.name}`,
+      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collector} for ${target.label}. ${season.paymentInfo}`,
       href: communityPath(community.slug, "/ledger"),
     });
   }
@@ -339,12 +335,22 @@ export async function sendSeasonPaymentRequest(formData: FormData) {
     action: "season.payment_request",
     entityType: "season",
     entityId: season.id,
-    meta: { amountCents, players: contractPlayers.length },
+    meta: {
+      amountCents,
+      players: contractPlayers.length,
+      installmentIndex: target.installmentIndex,
+      installmentId: target.id,
+    },
   });
 
   revalidatePath(communityPath(community.slug, `/seasons/${seasonId}`));
   revalidatePath(communityPath(community.slug, "/ledger"));
   return { ok: true };
+}
+
+export async function sendSeasonPaymentRequest(formData: FormData) {
+  // Backward-compatible: send the next planned installment (usually #1).
+  return sendSeasonInstallmentPayment(formData);
 }
 
 function agreeSignups(seasonId: string) {

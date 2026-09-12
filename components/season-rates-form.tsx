@@ -1,8 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { sendSeasonPaymentRequest, updateSeasonRates } from "@/lib/actions/season";
+import {
+  sendSeasonInstallmentPayment,
+  setInstallmentDueAt,
+  updateSeasonRates,
+} from "@/lib/actions/season";
 import { Field, Input, Select, Textarea, Button } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import {
@@ -11,7 +15,22 @@ import {
   seasonNightsPerWeek,
   seasonPaymentPeriodWeeks,
 } from "@/lib/season-billing";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, msToLocalInput } from "@/lib/utils";
+
+export type SeasonInstallmentRow = {
+  id: string;
+  installmentIndex: number;
+  label: string;
+  amountCents: number;
+  dueAt: number | null;
+  status: string;
+  requestedAt: number | null;
+};
+
+function dueDateValue(ms: number | null) {
+  if (!ms) return "";
+  return msToLocalInput(ms).slice(0, 10);
+}
 
 export function SeasonRatesForm({
   seasonId,
@@ -27,10 +46,10 @@ export function SeasonRatesForm({
   firstPaymentLastWeeks,
   paymentInfo,
   collectorUserId,
-  paymentRequestedAt,
   homeVisibleWeeks,
   members,
   canRequestPayment,
+  installments,
 }: {
   seasonId: string;
   currency: string;
@@ -45,12 +64,13 @@ export function SeasonRatesForm({
   firstPaymentLastWeeks: number;
   paymentInfo: string | null;
   collectorUserId: string | null;
-  paymentRequestedAt: number | null;
   homeVisibleWeeks: number;
   members: { userId: string; name: string }[];
   canRequestPayment: boolean;
+  installments: SeasonInstallmentRow[];
 }) {
   const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const saved = regularPriceCents > 0;
   const [editing, setEditing] = useState(!saved);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +101,7 @@ export function SeasonRatesForm({
   const collectorName = members.find((m) => m.userId === (collectorUserId ?? collector))?.name ?? "—";
   const nightsPerWeek = seasonNightsPerWeek(weekdays);
   const contractWeeks = seasonContractWeeks({ startDate, endDate, weekdays });
+  const nextPlannedId = installments.find((row) => row.status === "planned")?.id ?? null;
 
   const scheduleInput = useMemo(() => {
     const rate = Math.round(Number(rateDraft || 0) * 100);
@@ -109,19 +130,30 @@ export function SeasonRatesForm({
   ]);
 
   const liveSchedule = useMemo(() => buildSeasonPaymentSchedule(scheduleInput), [scheduleInput]);
-  const savedSchedule = useMemo(
-    () =>
-      buildSeasonPaymentSchedule({
-        startDate,
-        endDate,
-        weekdays,
-        regularPriceCents,
-        paymentPeriodWeeks: resolvedPeriod,
-        firstPaymentLastWeeks,
-        prepaidSessionCount,
-      }),
-    [startDate, endDate, weekdays, regularPriceCents, resolvedPeriod, firstPaymentLastWeeks, prepaidSessionCount],
-  );
+
+  function runSend(installmentId: string) {
+    setError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("seasonId", seasonId);
+      fd.set("installmentId", installmentId);
+      const result = await sendSeasonInstallmentPayment(fd);
+      if (result?.error) setError(result.error);
+      else router.refresh();
+    });
+  }
+
+  function runDueAt(installmentId: string, dueAt: string) {
+    setError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("installmentId", installmentId);
+      fd.set("dueAt", dueAt);
+      const result = await setInstallmentDueAt(fd);
+      if (result?.error) setError(result.error);
+      else router.refresh();
+    });
+  }
 
   if (!editing) {
     return (
@@ -168,52 +200,70 @@ export function SeasonRatesForm({
             <dd className="mt-0.5 whitespace-pre-wrap font-medium">{paymentInfo || "—"}</dd>
           </div>
         </dl>
-        {savedSchedule && savedSchedule.length > 0 && (
+
+        {installments.length > 0 && (
           <div className="rounded-2xl border border-line bg-card px-3 py-3">
-            <p className="text-xs uppercase tracking-wider text-ink/45">Payment schedule</p>
-            <ol className="mt-2 space-y-1.5 text-sm">
-              {savedSchedule.map((row) => (
-                <li key={row.index} className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span>
-                    <span className="font-medium text-ink">#{row.index}</span>
-                    <span className="text-ink/70"> · {row.label}</span>
-                    {row.index === 1 && firstPaymentLastWeeks > 0 ? (
-                      <span className="text-ink/45"> (includes last weeks)</span>
-                    ) : null}
-                  </span>
-                  <span className="font-medium">{formatMoney(row.amountCents, currency)}</span>
-                </li>
-              ))}
-            </ol>
+            <p className="text-xs uppercase tracking-wider text-ink/45">Payment plan</p>
+            <ul className="mt-3 space-y-3">
+              {installments.map((row) => {
+                const isNext = row.id === nextPlannedId;
+                const requested = row.status === "requested";
+                return (
+                  <li
+                    key={row.id}
+                    className="rounded-xl border border-line/80 bg-muted/40 px-3 py-3 text-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink">
+                          #{row.installmentIndex}
+                          <span className="font-normal text-ink/70"> · {row.label}</span>
+                        </p>
+                        <p className="mt-0.5 text-ink/55">
+                          {requested ? "Requested" : "Planned"}
+                          {row.installmentIndex === 1 && firstPaymentLastWeeks > 0
+                            ? " · includes last weeks"
+                            : ""}
+                        </p>
+                      </div>
+                      <p className="font-medium text-ink">{formatMoney(row.amountCents, currency)}</p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                      <label className="min-w-[10rem] flex-1 text-xs text-ink/55">
+                        Due date
+                        <Input
+                          type="date"
+                          className="mt-1"
+                          defaultValue={dueDateValue(row.dueAt)}
+                          disabled={pending}
+                          onBlur={(event) => {
+                            const next = event.target.value;
+                            if (next === dueDateValue(row.dueAt)) return;
+                            runDueAt(row.id, next);
+                          }}
+                        />
+                      </label>
+                      {canRequestPayment && isNext && (
+                        <Button type="button" disabled={pending} onClick={() => runSend(row.id)}>
+                          Send payment #{row.installmentIndex}
+                        </Button>
+                      )}
+                      {requested && (
+                        <span className="pb-2 text-xs text-ink/45">On the ledger</span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
+
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="ghost" onClick={() => setEditing(true)}>
             Edit
           </Button>
-          {canRequestPayment && !paymentRequestedAt && (
-            <Button
-              type="button"
-              onClick={() => {
-                setError(null);
-                const fd = new FormData();
-                fd.set("seasonId", seasonId);
-                void sendSeasonPaymentRequest(fd).then((result) => {
-                  if (result?.error) setError(result.error);
-                  else router.refresh();
-                });
-              }}
-            >
-              Send first payment request to contract players
-            </Button>
-          )}
         </div>
-        {paymentRequestedAt && (
-          <p className="text-sm text-ink/55">
-            First payment requests were sent
-            {firstPaymentLastWeeks > 0 ? " (period + last weeks of the contract)" : ""}. Track them on the ledger.
-          </p>
-        )}
         {error && <p className="text-sm text-clay">{error}</p>}
       </div>
     );

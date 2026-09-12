@@ -517,6 +517,31 @@ if (!hasColumn("seasons", "first_payment_extra_weeks")) {
 if (!hasColumn("seasons", "payment_period_weeks")) {
   sqlite.exec("ALTER TABLE seasons ADD COLUMN payment_period_weeks INTEGER");
 }
+if (!hasColumn("ledger_entries", "season_payment_installment_id")) {
+  sqlite.exec("ALTER TABLE ledger_entries ADD COLUMN season_payment_installment_id TEXT");
+}
+if (!hasColumn("ledger_entries", "installment_index")) {
+  sqlite.exec("ALTER TABLE ledger_entries ADD COLUMN installment_index INTEGER");
+}
+sqlite.exec(`
+CREATE TABLE IF NOT EXISTS season_payment_installments (
+  id TEXT PRIMARY KEY,
+  season_id TEXT NOT NULL REFERENCES seasons(id),
+  installment_index INTEGER NOT NULL,
+  weeks_json TEXT NOT NULL,
+  label TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  due_at INTEGER,
+  status TEXT NOT NULL DEFAULT 'planned',
+  requested_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS season_payment_installments_season_idx_uidx
+  ON season_payment_installments(season_id, installment_index);
+CREATE INDEX IF NOT EXISTS season_payment_installments_season_idx
+  ON season_payment_installments(season_id);
+`);
 if (!hasColumn("users", "platform_role")) {
   sqlite.exec("ALTER TABLE users ADD COLUMN platform_role TEXT");
 }

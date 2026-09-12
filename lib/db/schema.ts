@@ -306,6 +306,30 @@ export const contracts = sqliteTable(
   (t) => [uniqueIndex("contracts_season_user_uidx").on(t.seasonId, t.userId)],
 );
 
+/** Planned / requested contract payment installments for a season. */
+export const seasonPaymentInstallments = sqliteTable(
+  "season_payment_installments",
+  {
+    id: text("id").primaryKey(),
+    seasonId: text("season_id")
+      .notNull()
+      .references(() => seasons.id),
+    installmentIndex: integer("installment_index").notNull(),
+    weeksJson: text("weeks_json").notNull(),
+    label: text("label").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    dueAt: integer("due_at"),
+    status: text("status").notNull().default("planned"), // planned | requested | cancelled
+    requestedAt: integer("requested_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("season_payment_installments_season_idx_uidx").on(t.seasonId, t.installmentIndex),
+    index("season_payment_installments_season_idx").on(t.seasonId),
+  ],
+);
+
 export const seasonSessions = sqliteTable(
   "season_sessions",
   {
@@ -386,6 +410,8 @@ export const ledgerEntries = sqliteTable(
     weeklyEventId: text("weekly_event_id").references(() => weeklyEvents.id),
     sessionId: text("session_id").references(() => seasonSessions.id),
     seasonId: text("season_id").references(() => seasons.id),
+    seasonPaymentInstallmentId: text("season_payment_installment_id"),
+    installmentIndex: integer("installment_index"),
     externalPaymentId: text("external_payment_id"),
     claimedAt: integer("claimed_at"),
     settledAt: integer("settled_at"),
