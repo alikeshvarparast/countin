@@ -377,10 +377,10 @@ export default async function CommunityOverviewPage({
         </section>
       )}
 
-      {(openRsvpEvents.length > 0 || openVoteSeasons.length > 0) && (
+      {(openVoteSeasons.length > 0 || agreedSeasons.length > 0) && (
         <section>
-          <SectionTitle tone="vote">
-            {needsVoteEvents.length > 0 || needsVoteSeasons.length > 0 ? "Needs your reply" : "Presence open"}
+          <SectionTitle tone={needsVoteSeasons.length > 0 ? "vote" : "close"}>
+            {needsVoteSeasons.length > 0 ? "Needs your reply · contract" : "Contract agreement"}
           </SectionTitle>
           <ItemGrid>
             {openVoteSeasons.map((s) => {
@@ -407,15 +407,6 @@ export default async function CommunityOverviewPage({
                 />
               );
             })}
-            {openRsvpEvents.map(renderWeeklyCard)}
-          </ItemGrid>
-        </section>
-      )}
-
-      {agreedSeasons.length > 0 && (
-        <section>
-          <SectionTitle tone="close">Contract agreement</SectionTitle>
-          <ItemGrid>
             {agreedSeasons.map((s) => {
               const onContract = contractRows.filter((r) => r.seasonId === s.id).length;
               return (
@@ -430,6 +421,15 @@ export default async function CommunityOverviewPage({
               );
             })}
           </ItemGrid>
+        </section>
+      )}
+
+      {openRsvpEvents.length > 0 && (
+        <section>
+          <SectionTitle tone="vote">
+            {needsVoteEvents.length > 0 ? "Needs your reply" : "Presence open"}
+          </SectionTitle>
+          <ItemGrid>{openRsvpEvents.map(renderWeeklyCard)}</ItemGrid>
         </section>
       )}
 
