@@ -46,11 +46,24 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
   const squad = rows
     .filter((r) => r.membership.status === "approved" || r.membership.status === "suspended")
     .sort((a, b) => roleRank(a.membership.role) - roleRank(b.membership.role) || a.user.name.localeCompare(b.user.name));
+  const memberCount = squad.filter((r) => r.membership.status === "approved").length;
+  const suspendedCount = squad.filter((r) => r.membership.status === "suspended").length;
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-2xl">Squad</h2>
+        <div>
+          <h2 className="font-display text-2xl">Squad</h2>
+          <p className="mt-1 text-sm text-ink/55">
+            {memberCount} {memberCount === 1 ? "member" : "members"}
+            {suspendedCount > 0
+              ? ` · ${suspendedCount} suspended`
+              : ""}
+            {staff && pending.length > 0
+              ? ` · ${pending.length} join request${pending.length === 1 ? "" : "s"}`
+              : ""}
+          </p>
+        </div>
         {staff && <AddMemberButton slug={slug} />}
       </div>
       {staff && pending.length > 0 && (
