@@ -216,72 +216,6 @@ export default async function WeeklyEventPage({
         </dl>
       </div>
 
-      {admin && event.status !== "polling" && event.status !== "cancelled" && (
-        <div className="rounded-2xl border border-line bg-card p-5">
-          <EventCostPanel
-            eventId={event.id}
-            currency={community.currency}
-            paymentMode={event.paymentMode}
-            totalCostCents={event.totalCostCents}
-            collectorUserId={event.collectorUserId}
-            paymentRequestedAt={event.paymentRequestedAt}
-            status={event.status}
-            members={members}
-            initialAttendeeIds={going.map((g) => g.user.id)}
-            allSettled={allSettled}
-            canSendPrepaid={canSendPrepaid || (event.paymentMode === "prepaid" && event.status === "booked")}
-            canSendPostpaid={
-              event.paymentMode !== "prepaid" && (ended || ["booked", "ready_to_book", "open", "completed"].includes(event.status))
-            }
-          />
-        </div>
-      )}
-
-      {waitRows.length > 0 && (
-        <div className="rounded-2xl border border-line bg-card p-5">
-          <h3 className="font-display text-lg">Waitlist · {waitRows.length}</h3>
-          <ul className="mt-3 space-y-2 text-sm">
-            {waitRows
-              .sort((a, b) => a.createdAt - b.createdAt)
-              .map((w) => (
-                <li key={w.id} className="flex items-center justify-between gap-2">
-                  <span>{nameOf(w.userId)}</span>
-                  {admin && (
-                    <form
-                      action={async () => {
-                        "use server";
-                        const fd = new FormData();
-                        fd.set("eventId", event.id);
-                        fd.set("userId", w.userId);
-                        await promoteWaitlistMember(fd);
-                      }}
-                    >
-                      <SubmitButton size="sm" variant="ghost">
-                        Promote
-                      </SubmitButton>
-                    </form>
-                  )}
-                </li>
-              ))}
-          </ul>
-          {myWaitlisted && <p className="mt-2 text-sm text-ink/55">You are on the waitlist for this session.</p>}
-        </div>
-      )}
-
-      <GuestWaitlist
-        pending={pendingGuests.map((g) => ({
-          id: g.id,
-          label: g.label,
-          hostName: nameOf(g.hostUserId),
-          hostUserId: g.hostUserId,
-          askedAt: g.createdAt,
-          status: g.status,
-        }))}
-        timezone={community.timezone}
-        canDecide={admin}
-        userId={userId}
-      />
-
       {event.status !== "polling" && (
         <div className="rounded-2xl border border-line bg-card p-5">
           <h3 className="font-display text-lg">People</h3>
@@ -347,6 +281,72 @@ export default async function WeeklyEventPage({
             </ul>
             {canAddGuest && <GuestForm eventId={event.id} />}
           </div>
+        </div>
+      )}
+
+      <GuestWaitlist
+        pending={pendingGuests.map((g) => ({
+          id: g.id,
+          label: g.label,
+          hostName: nameOf(g.hostUserId),
+          hostUserId: g.hostUserId,
+          askedAt: g.createdAt,
+          status: g.status,
+        }))}
+        timezone={community.timezone}
+        canDecide={admin}
+        userId={userId}
+      />
+
+      {waitRows.length > 0 && (
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <h3 className="font-display text-lg">Waitlist · {waitRows.length}</h3>
+          <ul className="mt-3 space-y-2 text-sm">
+            {waitRows
+              .sort((a, b) => a.createdAt - b.createdAt)
+              .map((w) => (
+                <li key={w.id} className="flex items-center justify-between gap-2">
+                  <span>{nameOf(w.userId)}</span>
+                  {admin && (
+                    <form
+                      action={async () => {
+                        "use server";
+                        const fd = new FormData();
+                        fd.set("eventId", event.id);
+                        fd.set("userId", w.userId);
+                        await promoteWaitlistMember(fd);
+                      }}
+                    >
+                      <SubmitButton size="sm" variant="ghost">
+                        Promote
+                      </SubmitButton>
+                    </form>
+                  )}
+                </li>
+              ))}
+          </ul>
+          {myWaitlisted && <p className="mt-2 text-sm text-ink/55">You are on the waitlist for this session.</p>}
+        </div>
+      )}
+
+      {admin && event.status !== "polling" && event.status !== "cancelled" && (
+        <div className="rounded-2xl border border-line bg-card p-5">
+          <EventCostPanel
+            eventId={event.id}
+            currency={community.currency}
+            paymentMode={event.paymentMode}
+            totalCostCents={event.totalCostCents}
+            collectorUserId={event.collectorUserId}
+            paymentRequestedAt={event.paymentRequestedAt}
+            status={event.status}
+            members={members}
+            initialAttendeeIds={going.map((g) => g.user.id)}
+            allSettled={allSettled}
+            canSendPrepaid={canSendPrepaid || (event.paymentMode === "prepaid" && event.status === "booked")}
+            canSendPostpaid={
+              event.paymentMode !== "prepaid" && (ended || ["booked", "ready_to_book", "open", "completed"].includes(event.status))
+            }
+          />
         </div>
       )}
     </PageFrame>
