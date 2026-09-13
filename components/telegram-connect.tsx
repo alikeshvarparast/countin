@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { regenerateTelegramLink } from "@/lib/actions/community";
+import { regenerateTelegramLink, useTelegramProfilePhoto } from "@/lib/actions/community";
 import { Button } from "@/components/ui";
 import { APP_NAME } from "@/lib/brand";
 
@@ -42,10 +42,31 @@ export function TelegramConnect({
     }
   }
 
+  async function pullPhoto() {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const result = await useTelegramProfilePhoto();
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      setStatus("Profile picture updated from Telegram.");
+      router.refresh();
+    } catch {
+      setError("Could not fetch your Telegram photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="mt-2 space-y-3 text-sm text-ink/70">
       {linked ? (
-        <p>Linked. DMs will arrive from the {APP_NAME} bot.</p>
+        <p>
+          Linked. DMs will arrive from the {APP_NAME} bot. You can also use your Telegram photo as your app avatar.
+        </p>
       ) : (
         <p>Messages are not linked yet. Open the bot and tap Start so Telegram can deliver alerts.</p>
       )}
@@ -64,9 +85,14 @@ export function TelegramConnect({
       )}
       {status && <p className="text-primary">{status}</p>}
       {error && <p className="text-danger">{error}</p>}
-      <div>
+      <div className="flex flex-wrap gap-2">
+        {linked && (
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => void pullPhoto()}>
+            {busy ? "Updating…" : "Use Telegram photo"}
+          </Button>
+        )}
         <Button type="button" variant="ghost" disabled={busy} onClick={() => void makeNewLink()}>
-          {busy ? "Creating link…" : "New start link"}
+          {busy ? "Working…" : "New start link"}
         </Button>
       </div>
     </div>

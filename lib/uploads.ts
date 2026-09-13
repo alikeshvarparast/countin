@@ -83,16 +83,31 @@ export async function saveImageUpload(
     throw new Error("Image must be under 2MB.");
   }
   const buffer = Buffer.from(await file.arrayBuffer());
-  const ext = sniffExt(buffer, file.type ?? "", file.name ?? "");
+  return saveImageBuffer(buffer, folder, id, file.type ?? "", file.name ?? "");
+}
+
+export function saveImageBuffer(
+  buffer: Buffer,
+  folder: UploadFolder,
+  id: string,
+  mime = "",
+  filename = "photo.jpg",
+) {
+  migrateLegacyUploads();
+  if (!buffer.length) return null;
+  if (buffer.length > 2 * 1024 * 1024) {
+    throw new Error("Image must be under 2MB.");
+  }
+  const ext = sniffExt(buffer, mime, filename);
   if (!ext) {
     throw new Error("Use a JPG, PNG, or WebP image.");
   }
   const dir = path.join(uploadsRoot(), folder);
   fs.mkdirSync(dir, { recursive: true });
   purgeUploadsFor(folder, id);
-  const filename = `${id}-${Date.now()}.${ext}`;
-  fs.writeFileSync(path.join(dir, filename), buffer);
-  return `/uploads/${folder}/${filename}`;
+  const outName = `${id}-${Date.now()}.${ext}`;
+  fs.writeFileSync(path.join(dir, outName), buffer);
+  return `/uploads/${folder}/${outName}`;
 }
 
 function purgeUploadsFor(folder: UploadFolder, id: string) {

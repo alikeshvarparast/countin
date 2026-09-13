@@ -570,6 +570,17 @@ export async function updateProfilePhoto(formData: FormData) {
   return { ok: true, imageUrl };
 }
 
+export async function useTelegramProfilePhoto() {
+  const user = await requireUser();
+  const { applyTelegramProfilePhoto } = await import("@/lib/telegram-avatar");
+  const result = await applyTelegramProfilePhoto(user.id, true);
+  if (!result.ok) return { error: result.error };
+  revalidatePath("/app/profile");
+  revalidatePath("/", "layout");
+  revalidatePath("/app");
+  return { ok: true as const, imageUrl: result.imageUrl };
+}
+
 export async function regenerateTelegramLink() {
   const user = await requireUser();
   const token = createId();

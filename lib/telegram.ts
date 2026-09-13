@@ -127,3 +127,67 @@ export async function sendTelegramMessage(
     };
   }
 }
+
+/**
+ * Download the user's current Telegram profile photo (largest size) into app uploads.
+ * Requires a linked numeric Telegram user id (private chat id is fine).
+ */
+export async function downloadTelegramProfilePhoto(
+  telegramUserId: string | number,
+): Promise<{ ok: true; buffer: Buffer; mime: string } | { ok: false; error: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: false, error: "Telegram bot is not configured." };
+  const userId = String(telegramUserId).trim();
+  if (!/^\d+$/.test(userId)) {
+    return { ok: false, error: "Telegram user id is missing. Link the bot first." };
+  }
+
+  try {
+    const photosRes = await fetch(
+      `https://api.telegram.org/bot${token}/getUserProfilePhotos?user_id=${userId}&limit=1`,
+    );
+    const photosJson = (await photosRes.json()) as {
+      ok?: boolean;
+      description?: string;
+      result?: { total_count?: number; photos?: { file_id: string }[][] };
+    };
+    if (!photosJson.ok) {
+      return { ok: false, error: photosJson.description || "Could not read Telegram photos." };
+    }
+    const sizes = photosJson.result?.photos?.[0];
+    if (!sizes?.length) {
+      return { ok: false, error: "This Telegram account has no public profile photo." };
+    }
+    const best = sizes[sizes.length - 1]!;
+    const fileRes = await fetch(
+      `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(best.file_id)}`,
+    );
+    const fileJson = (await fileRes.json()) as {
+      ok?: boolean;
+      description?: string;
+      result?: { file_path?: string };
+    };
+    if (!fileJson.ok || !fileJson.result?.file_path) {
+      return { ok: false, error: fileJson.description || "Could not resolve Telegram photo file." };
+    }
+    const filePath = fileJson.result.file_path;
+    const download = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+    if (!download.ok) {
+      return { ok: false, error: `Telegram file download failed (${download.status}).` };
+    }
+    const buffer = Buffer.from(await download.arrayBuffer());
+    if (!buffer.length) return { ok: false, error: "Telegram photo was empty." };
+    const lower = filePath.toLowerCase();
+    const mime = lower.endsWith(".png")
+      ? "image/png"
+      : lower.endsWith(".webp")
+        ? "image/webp"
+        : "image/jpeg";
+    return { ok: true, buffer, mime };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Telegram network error",
+    };
+  }
+}

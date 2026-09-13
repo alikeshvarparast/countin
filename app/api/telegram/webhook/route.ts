@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { APP_NAME } from "@/lib/brand";
 import { ensureTelegramWebhook, sendTelegramMessage } from "@/lib/telegram";
+import { applyTelegramProfilePhoto } from "@/lib/telegram-avatar";
 
 type TelegramUpdate = {
   message?: {
@@ -79,6 +80,13 @@ export async function POST(request: NextRequest) {
     })
     .where(eq(users.id, user.id))
     .run();
+
+  // Default avatar from Telegram when the member has not uploaded one yet.
+  try {
+    await applyTelegramProfilePhoto(user.id, false);
+  } catch {
+    /* linking should still succeed if photo fetch fails */
+  }
 
   await sendTelegramMessage(
     String(chatId),

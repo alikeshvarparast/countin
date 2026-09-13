@@ -14,17 +14,25 @@ import { users } from "@/lib/db/schema";
 import { createId } from "@/lib/id";
 import { userHasPushSubscription } from "@/lib/push";
 import { resolveBotUsername, telegramBotUsername, telegramDeepLink } from "@/lib/telegram";
+import { applyTelegramProfilePhoto } from "@/lib/telegram-avatar";
 
 export default async function ProfilePage() {
   const session = await auth();
   if (!session?.user?.id) return null;
-  const user = db.select().from(users).where(eq(users.id, session.user.id)).get();
+  let user = db.select().from(users).where(eq(users.id, session.user.id)).get();
   if (!user) return null;
   const bot = (await resolveBotUsername()) || telegramBotUsername();
   if (!user.telegramLinkToken) {
     const token = createId();
     db.update(users).set({ telegramLinkToken: token }).where(eq(users.id, user.id)).run();
     user.telegramLinkToken = token;
+  }
+  // One-time default: if Telegram is linked and no custom photo yet, pull it.
+  if (user.telegramChatId && !user.imageUrl) {
+    const pulled = await applyTelegramProfilePhoto(user.id, false);
+    if (pulled.ok && pulled.imageUrl) {
+      user = db.select().from(users).where(eq(users.id, user.id)).get() ?? user;
+    }
   }
   const link = telegramDeepLink(user.telegramLinkToken);
 
