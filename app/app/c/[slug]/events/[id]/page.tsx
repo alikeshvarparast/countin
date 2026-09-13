@@ -7,6 +7,7 @@ import { EventMenu } from "@/components/event-menu";
 import { EventCostPanel } from "@/components/event-cost-panel";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
+import { NonVotersToggle } from "@/components/non-voters-toggle";
 import { PresenceVote } from "@/components/presence-vote";
 import { Avatar } from "@/components/avatar";
 import { PageFrame } from "@/components/page-frame";
@@ -15,6 +16,7 @@ import { db } from "@/lib/db";
 import {
   eventGuests,
   eventWaitlist,
+  ledgerEntries,
   pollOptions,
   polls,
   pollSuggestions,
@@ -75,6 +77,11 @@ export default async function WeeklyEventPage({
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
   const going = rsvpRows.filter((r) => r.rsvp.status === "going");
   const notGoing = rsvpRows.filter((r) => r.rsvp.status === "not_going");
+  const votedIds = new Set(rsvpRows.map((r) => r.rsvp.userId));
+  const nonVoters = listApprovedMembers(community.id)
+    .filter((m) => !votedIds.has(m.userId))
+    .map((m) => ({ id: m.userId, name: m.name, imageUrl: m.imageUrl }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const myRsvp = rsvpRows.find((r) => r.rsvp.userId === userId);
   const deadlinePassed = Boolean(event.rsvpDeadlineAt && Date.now() > event.rsvpDeadlineAt);
   const headcount = goingHeadcount(event.id);
@@ -96,6 +103,21 @@ export default async function WeeklyEventPage({
   );
   const canSendPostpaid = Boolean(admin && (event.paymentMode !== "prepaid" ? ended || event.status === "booked" : false));
   const allSettled = event.paymentRequestedAt ? eventLedgerAllSettled(event.id) : false;
+  const shareRows = event.paymentRequestedAt
+    ? db
+        .select({
+          id: ledgerEntries.id,
+          fromUserId: ledgerEntries.fromUserId,
+          amountCents: ledgerEntries.amountCents,
+          status: ledgerEntries.status,
+          fromName: users.name,
+        })
+        .from(ledgerEntries)
+        .innerJoin(users, eq(users.id, ledgerEntries.fromUserId))
+        .where(eq(ledgerEntries.weeklyEventId, event.id))
+        .all()
+    : [];
+  const showCost = event.status !== "polling" && event.status !== "cancelled" && (admin || Boolean(event.paymentRequestedAt));
   const myWaitlisted = waitRows.some((w) => w.userId === userId);
   const suggestions = poll
     ? db
@@ -266,6 +288,7 @@ export default async function WeeklyEventPage({
               </ul>
             </div>
           </div>
+          <NonVotersToggle people={nonVoters} />
           <div className="mt-5 border-t border-line pt-5">
             <p className="text-xs uppercase tracking-[0.18em] text-secondary">Guests · {approvedGuests.length}</p>
             <ul className="mt-2 space-y-2 text-sm">
@@ -329,7 +352,7 @@ export default async function WeeklyEventPage({
         </div>
       )}
 
-      {admin && event.status !== "polling" && event.status !== "cancelled" && (
+      {showCost && (
         <div className="rounded-2xl border border-line bg-card p-5">
           <EventCostPanel
             eventId={event.id}
@@ -341,6 +364,9 @@ export default async function WeeklyEventPage({
             status={event.status}
             members={members}
             initialAttendeeIds={going.map((g) => g.user.id)}
+            shares={shareRows}
+            currentUserId={userId ?? null}
+            isAdmin={admin}
             allSettled={allSettled}
             canSendPrepaid={canSendPrepaid || (event.paymentMode === "prepaid" && event.status === "booked")}
             canSendPostpaid={

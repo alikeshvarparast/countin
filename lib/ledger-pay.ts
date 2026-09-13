@@ -5,10 +5,11 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/auth";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { communities, ledgerEntries, users } from "@/lib/db/schema";
+import { communities, ledgerEntries, users, weeklyEvents } from "@/lib/db/schema";
 import { now } from "@/lib/id";
 import { notify } from "@/lib/notify";
 import { formatMoney } from "@/lib/utils";
+import { eventLedgerAllSettled } from "@/lib/ledger-status";
 
 export async function claimLedgerPayment(entryId: string) {
   const user = await requireUser();
@@ -83,6 +84,21 @@ export async function verifyLedgerPayment(entryId: string) {
     body: `Your ${formatMoney(entry.amountCents, community.currency)} payment was verified.`,
     href: `/app/c/${community.slug}/ledger`,
   });
+
+  if (entry.weeklyEventId && eventLedgerAllSettled(entry.weeklyEventId)) {
+    const weekly = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, entry.weeklyEventId)).get();
+    if (weekly && weekly.status !== "completed" && weekly.status !== "cancelled") {
+      db.update(weeklyEvents).set({ status: "completed" }).where(eq(weeklyEvents.id, weekly.id)).run();
+      audit({
+        communityId: community.id,
+        actorId: user.id,
+        action: "weekly.close",
+        entityType: "weekly_event",
+        entityId: weekly.id,
+        meta: { reason: "all_shares_verified" },
+      });
+    }
+  }
 
   revalidatePath(`/app/c/${community.slug}/ledger`);
   revalidatePath(`/app/c/${community.slug}`);
