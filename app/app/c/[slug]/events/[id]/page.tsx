@@ -88,11 +88,14 @@ export default async function WeeklyEventPage({
   const collector = event.collectorUserId ? nameOf(event.collectorUserId) : "the collector";
   const rsvpOpen = ["open", "ready_to_book", "booked"].includes(event.status);
   const canVote = Boolean(
-    userId && rsvpOpen && !suspended && (event.status === "booked" || !deadlinePassed || admin),
+    userId && rsvpOpen && !suspended && (event.status === "booked" || !deadlinePassed),
   );
-  const canAddGuest = Boolean(myRsvp?.rsvp.status === "going" && !deadlinePassed && !suspended);
+  const canAddGuest = Boolean(
+    myRsvp?.rsvp.status === "going" && (event.status === "booked" || !deadlinePassed) && !suspended,
+  );
   const canBook = Boolean(admin && ["open", "ready_to_book"].includes(event.status));
   const canCancel = Boolean(admin && event.status !== "cancelled");
+  const canClosePresence = Boolean(admin && rsvpOpen && !deadlinePassed);
   const members = listApprovedMembers(community.id).map((m) => ({
     userId: m.userId,
     name: m.name,
@@ -166,6 +169,7 @@ export default async function WeeklyEventPage({
             canBook={canBook}
             canCancel={canCancel}
             canEdit={Boolean(admin && event.status !== "cancelled" && event.status !== "completed")}
+            canClosePresence={canClosePresence}
             lockOptions={admin && event.status === "polling" ? options.map((o) => ({ id: o.id, label: o.label })) : undefined}
             showDetails={false}
           />

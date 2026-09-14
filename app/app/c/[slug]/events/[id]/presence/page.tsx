@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
-import { getCommunityBySlug, isAdmin, isSuspended } from "@/lib/access";
+import { getCommunityBySlug, isSuspended } from "@/lib/access";
 import { PresenceVote } from "@/components/presence-vote";
 import { Card } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -28,12 +28,11 @@ export default async function EventPresencePage({
   if (!event || event.communityId !== community.id) notFound();
   if (event.status === "cancelled") redirect(`/app/c/${slug}`);
 
-  const admin = isAdmin(community.id, userId);
   const suspended = isSuspended(community.id, userId);
   const deadlinePassed = Boolean(event.rsvpDeadlineAt && Date.now() > event.rsvpDeadlineAt);
   const rsvpOpen = ["open", "ready_to_book", "booked"].includes(event.status);
   const canVote = Boolean(
-    rsvpOpen && !suspended && (event.status === "booked" || !deadlinePassed || admin),
+    rsvpOpen && !suspended && (event.status === "booked" || !deadlinePassed),
   );
   if (!canVote) redirect(`/app/c/${slug}/events/${id}`);
 

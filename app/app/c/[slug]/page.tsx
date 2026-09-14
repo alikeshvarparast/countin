@@ -27,9 +27,17 @@ import {
   users,
   pollSuggestions,
 } from "@/lib/db/schema";
-import { eventWindowEnd, formatWhen, msToLocalInput, pendingRequestLabel, sessionSlotIsGoing } from "@/lib/utils";
+import { formatWhen, msToLocalInput, pendingRequestLabel, sessionSlotIsGoing } from "@/lib/utils";
+import {
+  actionNeededNote,
+  homeBucket,
+  lifecycleStatusLabel,
+  presenceVotingClosed,
+  waitingMeta,
+} from "@/lib/home-events";
 import { listVoteHistory } from "@/lib/votes";
 import { goingHeadcount } from "@/lib/ledger";
+import { eventLedgerAllSettled } from "@/lib/ledger-status";
 import { notFound } from "next/navigation";
 
 export default async function CommunityOverviewPage({
@@ -42,7 +50,6 @@ export default async function CommunityOverviewPage({
   if (!community) notFound();
   const timeZone = community.timezone;
   const clubLocation = community.location;
-  const currency = community.currency;
   const session = await auth();
   const userId = session?.user?.id;
   const admin = userId ? isAdmin(community.id, userId) : false;
@@ -66,31 +73,10 @@ export default async function CommunityOverviewPage({
   const rsvpRows = db.select().from(rsvps).all();
   const guestRows = db.select().from(eventGuests).all();
   const slotRows = db.select().from(sessionSlots).all();
-
-  const activeEvents = events.filter((e) => {
-    if (e.status === "cancelled" || e.status === "completed") return false;
-    if (!e.startsAt) return e.status === "polling" || e.status === "open";
-    return (eventWindowEnd(e) ?? e.startsAt) >= now;
-  });
-  const needsCloseEvents = admin
-    ? events.filter((e) => {
-        if (e.status === "cancelled" || e.status === "completed") return false;
-        const ended = Boolean(e.startsAt && (eventWindowEnd(e) ?? e.startsAt) < now);
-        if (e.paymentRequestedAt) return true;
-        if (ended && (e.status === "booked" || e.totalCostCents != null)) return true;
-        return false;
-      })
-    : [];
-  const needsCloseIds = new Set(needsCloseEvents.map((e) => e.id));
-  const pastEvents = events
-    .filter((e) => {
-      if (needsCloseIds.has(e.id)) return false;
-      if (e.status === "cancelled") return false;
-      if (e.status === "completed") return true;
-      if (!e.startsAt) return false;
-      return (eventWindowEnd(e) ?? e.startsAt) < now;
-    })
-    .sort((a, b) => (b.startsAt ?? b.createdAt) - (a.startsAt ?? a.createdAt));
+  const settledByEvent = new Map<string, boolean>();
+  for (const e of events) {
+    if (e.paymentRequestedAt) settledByEvent.set(e.id, eventLedgerAllSettled(e.id));
+  }
 
   const seasonRows = db.select().from(seasons).where(eq(seasons.communityId, community.id)).all();
   const sessions = db
@@ -119,7 +105,7 @@ export default async function CommunityOverviewPage({
     .filter((s) => sessionEnd(s) < now)
     .sort((a, b) => b.startsAt - a.startsAt);
   const votingSeasons = seasonRows.filter((s) => s.status === "signup");
-  /** Closed agreement, nights not created yet — admin/owner follow-up only on Home. */
+  /** Closed agreement, nights not created — staff Action needed only. */
   const agreedSeasons = admin
     ? seasonRows.filter((s) => s.status === "agreed")
     : [];
@@ -132,55 +118,39 @@ export default async function CommunityOverviewPage({
     return !signupRows.some((r) => r.seasonId === s.id && r.userId === userId);
   });
 
-  const datedEvents = activeEvents.filter((e) => e.status !== "polling" && !needsCloseIds.has(e.id));
   function hasMyPresenceVote(e: (typeof events)[number]) {
     return Boolean(userId && rsvpRows.some((r) => r.eventId === e.id && r.userId === userId));
   }
-  function eventNeedsVote(e: (typeof events)[number]) {
-    if (!userId || suspended) return false;
-    // Booked nights stay in Needs reply until this member votes.
-    if (e.status === "booked") return !hasMyPresenceVote(e);
-    if (!["open", "ready_to_book"].includes(e.status)) return false;
-    const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
-    if (deadlinePassed) return false;
-    return !hasMyPresenceVote(e);
+
+  const expressEvents: (typeof events)[number][] = [];
+  const actionEvents: (typeof events)[number][] = [];
+  const upcomingEvents: (typeof events)[number][] = [];
+  const futureEvents: (typeof events)[number][] = [];
+  const pastWeekly: (typeof events)[number][] = [];
+
+  for (const e of events) {
+    const bucket = homeBucket(e, {
+      now,
+      hasVote: hasMyPresenceVote(e),
+      weekMs,
+    });
+    if (bucket === "express") expressEvents.push(e);
+    else if (bucket === "action") actionEvents.push(e);
+    else if (bucket === "upcoming") upcomingEvents.push(e);
+    else if (bucket === "future") futureEvents.push(e);
+    else if (bucket === "past") pastWeekly.push(e);
   }
-  /**
-   * Presence / Needs reply: open voting before book, plus booked nights the viewer has not voted on.
-   * Upcoming only after the field is booked AND this member has voted.
-   */
-  function eventPresenceVotingOpen(e: (typeof events)[number]) {
-    if (suspended) return false;
-    if (e.status === "booked") return !hasMyPresenceVote(e);
-    if (!["open", "ready_to_book"].includes(e.status)) return false;
-    const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
-    return !deadlinePassed;
-  }
-  /** Admins/owners keep closed presence voting on Home; members do not. */
-  function eventClosedPresenceForStaff(e: (typeof events)[number]) {
-    if (!admin || suspended) return false;
-    if (!["open", "ready_to_book"].includes(e.status)) return false;
-    return Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
-  }
-  const needsVoteEvents = datedEvents.filter(eventNeedsVote);
-  const openRsvpEvents = datedEvents.filter(eventPresenceVotingOpen);
-  const closedPresenceForStaff = datedEvents.filter(eventClosedPresenceForStaff);
-  const presenceHomeEvents = admin ? [...openRsvpEvents, ...closedPresenceForStaff] : openRsvpEvents;
-  const presenceHomeIds = new Set(presenceHomeEvents.map((e) => e.id));
-  /** Upcoming/Future one-nights: field booked AND this member has already voted. */
-  const restEvents = datedEvents.filter(
-    (e) => !presenceHomeIds.has(e.id) && e.status === "booked" && hasMyPresenceVote(e),
+
+  const needsVoteEvents = expressEvents.filter(
+    (e) => userId && !suspended && !hasMyPresenceVote(e),
   );
-  const upcomingEvents = restEvents.filter((e) => e.startsAt && e.startsAt <= now + weekMs);
-  const futureEvents = restEvents.filter((e) => !e.startsAt || e.startsAt > now + weekMs);
   const upcomingSessionsSoon = upcomingSessions.filter((s) => s.startsAt <= now + weekMs);
   const futureSessions = upcomingSessions.filter((s) => s.startsAt > now + weekMs);
 
   const pastItems = [
-    ...pastEvents.map((e) => ({ kind: "weekly" as const, at: e.startsAt ?? e.createdAt, event: e })),
+    ...pastWeekly.map((e) => ({ kind: "weekly" as const, at: e.startsAt ?? e.createdAt, event: e })),
     ...pastSessions.map((s) => ({ kind: "session" as const, at: s.startsAt, session: s })),
-  ]
-    .sort((a, b) => b.at - a.at);
+  ].sort((a, b) => b.at - a.at);
   const pastPreview = pastItems.slice(0, 5);
   const pastHasMore = pastItems.length > 5;
 
@@ -288,7 +258,12 @@ export default async function CommunityOverviewPage({
     </>
   ) : null;
 
-  function renderWeeklyCard(e: (typeof events)[number], opts?: { withPresence?: boolean }) {
+  function renderWeeklyCard(
+    e: (typeof events)[number],
+    opts: {
+      mode: "express" | "upcoming" | "action";
+    },
+  ) {
     const eventRsvps = rsvpRows.filter((r) => r.eventId === e.id);
     const goingCount = eventRsvps.filter((r) => r.status === "going").length;
     const notGoingCount = eventRsvps.filter((r) => r.status === "not_going").length;
@@ -304,14 +279,26 @@ export default async function CommunityOverviewPage({
       }));
     const guestCount = guests.filter((g) => g.status === "approved").length;
     const pendingGuests = guests.filter((g) => g.status === "pending").length;
-    const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
-    const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
+    const closed = presenceVotingClosed(e, now);
     const headcount = goingByEvent.get(e.id) ?? 0;
-    const withPresence =
-      opts?.withPresence ??
-      (eventPresenceVotingOpen(e) || eventClosedPresenceForStaff(e));
+    const settled = settledByEvent.get(e.id) ?? false;
+    const life = lifecycleStatusLabel(e, now, settled);
+    const canClosePresence = Boolean(
+      admin && ["open", "ready_to_book", "booked"].includes(e.status) && !closed,
+    );
+    // Booked nights keep Change presence after voting closes; unbooked closed nights do not.
+    const canVote = Boolean(
+      userId &&
+        !suspended &&
+        ["open", "ready_to_book", "booked"].includes(e.status) &&
+        (e.status === "booked" || !closed),
+    );
 
-    if (!withPresence) {
+    if (opts.mode === "action") {
+      const note = admin
+        ? actionNeededNote(e, now, settled)
+        : waitingMeta(e, now, settled);
+      const meta = `${headcount} going${guestCount ? ` · ${guestCount} guest${guestCount === 1 ? "" : "s"}` : ""}`;
       return (
         <EventCard
           key={e.id}
@@ -320,18 +307,56 @@ export default async function CommunityOverviewPage({
           startsAt={e.startsAt}
           timeZone={timeZone}
           location={e.location || clubLocation}
-          status={e.status}
+          status={life}
           hasTime={e.hasTime}
           durationMinutes={e.durationMinutes}
-          meta={`${headcount} going${guestCount ? ` · ${guestCount} guest${guestCount === 1 ? "" : "s"}` : ""}`}
-          requests={pendingGuests > 0 ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}` : undefined}
-          myPresence={
-            myStatus === "going" ? "going" : myStatus === "not_going" ? "not_going" : null
+          note={note}
+          meta={meta}
+          attention="action"
+          requests={
+            admin && pendingGuests > 0
+              ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}`
+              : undefined
           }
+          myPresence={null}
         />
       );
     }
 
+    if (opts.mode === "upcoming") {
+      // Change presence only (collapsed); show reply badge on compact cards when not editing via home card.
+      return (
+        <EventHomeCard
+          key={e.id}
+          slug={slug}
+          eventId={e.id}
+          title={e.title}
+          startsAt={e.startsAt}
+          timeZone={timeZone}
+          location={e.location || clubLocation}
+          status={life}
+          hasTime={e.hasTime}
+          durationMinutes={e.durationMinutes}
+          goingCount={goingCount}
+          notGoingCount={notGoingCount}
+          headcount={headcount}
+          myStatus={myStatus}
+          canVote={canVote}
+          canAddGuest={Boolean(myStatus === "going" && e.status === "booked" && !suspended)}
+          isAdmin={admin}
+          canBook={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
+          canCancel={Boolean(admin && e.status !== "cancelled")}
+          canEdit={Boolean(admin && e.status !== "cancelled" && e.status !== "completed")}
+          canClosePresence={canClosePresence}
+          guestCount={guestCount}
+          pendingGuests={pendingGuests}
+          needsVote={Boolean(!myStatus)}
+          collapseChoices
+        />
+      );
+    }
+
+    // Express the presence — full vote buttons while voting is open.
     return (
       <EventHomeCard
         key={e.id}
@@ -341,30 +366,24 @@ export default async function CommunityOverviewPage({
         startsAt={e.startsAt}
         timeZone={timeZone}
         location={e.location || clubLocation}
-        status={e.status}
+        status={life}
         hasTime={e.hasTime}
         durationMinutes={e.durationMinutes}
         goingCount={goingCount}
         notGoingCount={notGoingCount}
         headcount={headcount}
         myStatus={myStatus}
-        canVote={Boolean(
-          userId && rsvpOpen && !suspended && (e.status === "booked" || !deadlinePassed || admin),
-        )}
-        canAddGuest={Boolean(myStatus === "going" && !deadlinePassed && !suspended)}
+        canVote={canVote}
+        canAddGuest={Boolean(myStatus === "going" && !closed && !suspended)}
         isAdmin={admin}
         canBook={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
         canCancel={Boolean(admin && e.status !== "cancelled")}
         canEdit={Boolean(admin && e.status !== "cancelled" && e.status !== "completed")}
+        canClosePresence={canClosePresence}
         guestCount={guestCount}
         pendingGuests={pendingGuests}
-        needsVote={Boolean(
-          userId &&
-            rsvpOpen &&
-            !suspended &&
-            !myStatus &&
-            (e.status === "booked" || !deadlinePassed),
-        )}
+        needsVote={Boolean(userId && !myStatus)}
+        collapseChoices={false}
       />
     );
   }
@@ -406,6 +425,8 @@ export default async function CommunityOverviewPage({
     </Link>
   ) : undefined;
 
+  const showActionSection = actionEvents.length > 0 || (admin && agreedSeasons.length > 0);
+
   return (
     <div className="motion-enter space-y-8">
       {createLinks && (
@@ -441,14 +462,10 @@ export default async function CommunityOverviewPage({
         </section>
       )}
 
-      {(openVoteSeasons.length > 0 || agreedSeasons.length > 0) && (
+      {openVoteSeasons.length > 0 && (
         <section>
-          <SectionTitle tone={needsVoteSeasons.length > 0 ? "vote" : "close"}>
-            {needsVoteSeasons.length > 0
-              ? "Needs your reply · contract"
-              : openVoteSeasons.length > 0
-                ? "Contract agreement"
-                : "Contract · create nights"}
+          <SectionTitle tone={needsVoteSeasons.length > 0 ? "vote" : "default"}>
+            {needsVoteSeasons.length > 0 ? "Needs your reply · contract" : "Contract agreement"}
           </SectionTitle>
           <ItemGrid>
             {openVoteSeasons.map((s) => {
@@ -472,47 +489,47 @@ export default async function CommunityOverviewPage({
                 />
               );
             })}
-            {agreedSeasons.map((s) => {
-              const onContract = contractRows.filter((r) => r.seasonId === s.id).length;
-              return (
-                <EventCard
-                  key={s.id}
-                  href={`/app/c/${slug}/seasons/${s.id}`}
-                  title={s.name}
-                  location={s.location || community.location}
-                  status="agreement closed"
-                  meta={`${onContract} on this season's contract · min ${s.minPlayers} · create the nights next`}
-                  emphasize
-                />
-              );
-            })}
           </ItemGrid>
         </section>
       )}
 
-      {presenceHomeEvents.length > 0 && (
+      {expressEvents.length > 0 && (
         <section>
           <SectionTitle tone="vote">
-            {needsVoteEvents.length > 0
-              ? "Needs your reply"
-              : closedPresenceForStaff.length > 0 && openRsvpEvents.length === 0
-                ? "Presence closed · staff"
-                : "Presence open"}
+            {needsVoteEvents.length > 0 ? "Express the presence · needs your reply" : "Express the presence"}
           </SectionTitle>
-          <ItemGrid>{presenceHomeEvents.map((e) => renderWeeklyCard(e, { withPresence: true }))}</ItemGrid>
+          <ItemGrid>{expressEvents.map((e) => renderWeeklyCard(e, { mode: "express" }))}</ItemGrid>
         </section>
       )}
 
-      {needsCloseEvents.length > 0 && (
+      {showActionSection && (
         <section>
-          <SectionTitle tone="close">Needs to be closed</SectionTitle>
-          <ItemGrid>{needsCloseEvents.map((e) => renderWeeklyCard(e))}</ItemGrid>
+          <SectionTitle tone="close">{admin ? "Action needed" : "Waiting"}</SectionTitle>
+          <ItemGrid>
+            {admin &&
+              agreedSeasons.map((s) => {
+                const onContract = contractRows.filter((r) => r.seasonId === s.id).length;
+                return (
+                  <EventCard
+                    key={s.id}
+                    href={`/app/c/${slug}/seasons/${s.id}`}
+                    title={s.name}
+                    location={s.location || community.location}
+                    status="agreement closed"
+                    note="Action needed: create the season nights from this closed agreement."
+                    meta={`${onContract} on contract · min ${s.minPlayers}`}
+                    attention="action"
+                  />
+                );
+              })}
+            {actionEvents.map((e) => renderWeeklyCard(e, { mode: "action" }))}
+          </ItemGrid>
         </section>
       )}
 
       <section>
         <SectionTitle tone="upcoming" action={sectionAction}>
-          Upcoming · next 7 days
+          Upcoming events · next 7 days
         </SectionTitle>
         <ItemGrid>
           {upcomingEvents.length === 0 && upcomingSessionsSoon.length === 0 && (
@@ -520,16 +537,16 @@ export default async function CommunityOverviewPage({
               Nothing in the next week.
             </p>
           )}
-          {upcomingEvents.map((e) => renderWeeklyCard(e, { withPresence: true }))}
+          {upcomingEvents.map((e) => renderWeeklyCard(e, { mode: "upcoming" }))}
           {upcomingSessionsSoon.map(renderSessionCard)}
         </ItemGrid>
       </section>
 
       {(futureEvents.length > 0 || futureSessions.length > 0) && (
         <section>
-          <SectionTitle tone="future">Future · after 7 days</SectionTitle>
+          <SectionTitle tone="future">Future events · after 7 days</SectionTitle>
           <ItemGrid>
-            {futureEvents.map((e) => renderWeeklyCard(e, { withPresence: true }))}
+            {futureEvents.map((e) => renderWeeklyCard(e, { mode: "upcoming" }))}
             {futureSessions.map(renderSessionCard)}
           </ItemGrid>
         </section>
@@ -559,7 +576,11 @@ export default async function CommunityOverviewPage({
                   startsAt={item.event.startsAt}
                   timeZone={community.timezone}
                   location={item.event.location || community.location}
-                  status={item.event.status}
+                  status={lifecycleStatusLabel(
+                    item.event,
+                    now,
+                    settledByEvent.get(item.event.id) ?? false,
+                  )}
                   hasTime={item.event.hasTime}
                   durationMinutes={item.event.durationMinutes}
                 />

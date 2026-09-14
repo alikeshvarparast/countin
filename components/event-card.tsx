@@ -6,7 +6,17 @@ export function statusBadgeTone(status?: string | null): "line" | "lime" | "clay
   if (!status) return "line";
   const s = status.toLowerCase();
   if (s.includes("vote") || s.includes("poll") || s.includes("agreement") || s === "signup") return "clay";
-  if (s === "booked" || s === "open" || s === "ready_to_book" || s === "scheduled" || s === "locked") return "lime";
+  if (
+    s === "booked" ||
+    s === "open" ||
+    s === "ready_to_book" ||
+    s === "scheduled" ||
+    s === "locked" ||
+    s === "voting"
+  ) {
+    return "lime";
+  }
+  if (s === "needs payment" || s === "voting closed" || s === "finished") return "clay";
   if (s === "completed" || s === "cancelled") return "line";
   return "cream";
 }
@@ -60,10 +70,12 @@ export function EventCard({
   location,
   status,
   meta,
+  note,
   hasTime = true,
   durationMinutes,
   requests,
   emphasize,
+  attention,
   myPresence,
 }: {
   href: string;
@@ -73,30 +85,45 @@ export function EventCard({
   location?: string | null;
   status?: string;
   meta?: string;
+  /** Primary instruction — shown clearly, not truncated away. */
+  note?: string;
   hasTime?: boolean | null;
   durationMinutes?: number | null;
   requests?: string;
   emphasize?: boolean;
+  /** Urgent Home treatment: action needed or unanswered vote. */
+  attention?: "action" | "vote" | null;
   /** Your reply on this night — shown as a clear badge on Upcoming/Future. */
   myPresence?: "going" | "not_going" | "none" | null;
 }) {
   const when = startsAt
     ? `${formatEventTimeLine(startsAt, timeZone, hasTime, durationMinutes)}${location ? ` · ${location}` : ""}`
     : location || "";
-  const extra = [meta, requests ? `${requests} waiting` : ""].filter(Boolean).join(" · ");
   const presenceLabel =
-    myPresence === "going" ? "Going" : myPresence === "not_going" ? "Not going" : myPresence === "none" ? "No reply" : null;
+    myPresence === "going"
+      ? "Going"
+      : myPresence === "not_going"
+        ? "Not going"
+        : myPresence === "none"
+          ? "Not answered"
+          : null;
   const presenceTone = myPresence === "going" ? "lime" : myPresence === "not_going" ? "clay" : "line";
+  const urgent = Boolean(attention) || Boolean(emphasize);
 
   return (
     <Link
       href={href}
       className={cn(
-        "motion-press flex items-center gap-3 rounded-2xl border bg-card px-3 py-2",
-        emphasize ? "vote-needs-reply border-primary/40 shadow-[0_8px_22px_rgba(47,107,79,0.1)]" : "border-line",
-        myPresence === "going" && !emphasize && "border-primary/25 bg-[color:var(--color-success-wash)]",
+        "motion-press flex items-center gap-3 rounded-2xl border bg-card px-3 py-2.5",
+        attention === "action" &&
+          "vote-needs-reply border-warn/45 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.12)]",
+        attention === "vote" &&
+          "vote-needs-reply border-warn/45 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.12)]",
+        emphasize && !attention && "vote-needs-reply border-primary/40 shadow-[0_8px_22px_rgba(47,107,79,0.1)]",
+        myPresence === "going" && !urgent && "border-primary/25 bg-[color:var(--color-success-wash)]",
+        !urgent && !myPresence && "border-line",
       )}
-      style={emphasize ? { backgroundColor: "var(--color-success-wash)" } : undefined}
+      style={emphasize && !attention ? { backgroundColor: "var(--color-success-wash)" } : undefined}
     >
       <DateTile ms={startsAt} timeZone={timeZone} compact />
       <div className="min-w-0 flex-1">
@@ -104,7 +131,13 @@ export function EventCard({
           <span className="font-medium text-ink">{title}</span>
           {when && <span className="ml-2 text-ink/45">{when}</span>}
         </p>
-        {extra && <p className="truncate text-xs text-ink/40">{extra}</p>}
+        {note && (
+          <p className="mt-1 text-xs font-medium leading-snug text-warn line-clamp-3">{note}</p>
+        )}
+        {meta && <p className="mt-0.5 truncate text-xs text-ink/45">{meta}</p>}
+        {requests && !note && (
+          <p className="mt-0.5 truncate text-xs text-ink/40">{requests} waiting</p>
+        )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
         {presenceLabel && <Badge tone={presenceTone}>{presenceLabel}</Badge>}

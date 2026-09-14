@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
-import { cancelWeeklyEvent, lockPollTime } from "@/lib/actions/weekly";
+import { cancelWeeklyEvent, closePresenceVoting, lockPollTime } from "@/lib/actions/weekly";
 import { ActionMenu } from "@/components/action-menu";
 import { Field, Input, Modal } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
@@ -19,6 +19,7 @@ export function EventMenu({
   canBook,
   canCancel,
   canEdit,
+  canClosePresence,
   lockOptions,
   showDetails = true,
 }: {
@@ -30,6 +31,7 @@ export function EventMenu({
   canBook: boolean;
   canCancel: boolean;
   canEdit?: boolean;
+  canClosePresence?: boolean;
   lockOptions?: { id: string; label: string }[];
   showDetails?: boolean;
 }) {
@@ -40,7 +42,15 @@ export function EventMenu({
   const href = `/app/c/${slug}/events/${eventId}`;
   const canLock = Boolean(isAdmin && lockOptions && lockOptions.length > 0);
   const showGuests = Boolean(canAddGuest || isAdmin);
-  const hasItems = showDetails || canVote || showGuests || canLock || canBook || canCancel || canEdit;
+  const hasItems =
+    showDetails ||
+    canVote ||
+    showGuests ||
+    canLock ||
+    canBook ||
+    canCancel ||
+    canEdit ||
+    canClosePresence;
   if (!hasItems) return null;
 
   function withReturn(path: string) {
@@ -106,6 +116,19 @@ export function EventMenu({
         {canBook && (
           <button type="button" className="block w-full px-3 py-2.5 text-left hover:bg-muted" onClick={() => go(`${href}/book`)}>
             Mark field booked
+          </button>
+        )}
+        {canClosePresence && (
+          <button
+            type="button"
+            className="block w-full px-3 py-2.5 text-left hover:bg-muted"
+            onClick={async () => {
+              setMenu(false);
+              await closePresenceVoting(eventId);
+              router.refresh();
+            }}
+          >
+            Close presence voting
           </button>
         )}
         {canCancel && (

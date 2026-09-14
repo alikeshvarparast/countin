@@ -395,13 +395,10 @@ export async function setRsvp(formData: FormData) {
     return { error: "RSVP is not open." };
   }
   const staff = isStaff(event.communityId, user.id);
-  // After the field is booked, members can still change presence (with admin notify / min checks).
-  if (
-    event.status !== "booked" &&
-    !staff &&
-    event.rsvpDeadlineAt &&
-    now() > event.rsvpDeadlineAt
-  ) {
+  const presenceClosed = Boolean(event.rsvpDeadlineAt && now() > event.rsvpDeadlineAt);
+  // Closed voting + not booked → Action needed; members cannot RSVP.
+  // Closed voting + booked → still allowed (admin notify / min-player rules).
+  if (presenceClosed && event.status !== "booked" && !staff) {
     return { error: "The presence deadline has passed." };
   }
 
@@ -605,6 +602,46 @@ export async function confirmFieldBooked(eventId: string) {
   revalidatePath(`/app/c/${community.slug}`);
   revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
   revalidatePath(`/app/c/${community.slug}/ledger`);
+  return { ok: true };
+}
+
+export async function closePresenceVoting(eventId: string) {
+  const user = await requireUser();
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireAdmin(event.communityId, user.id);
+  if (!["open", "ready_to_book", "booked"].includes(event.status)) {
+    return { error: "Presence voting is not open for this event." };
+  }
+  const t = now();
+  if (event.rsvpDeadlineAt && event.rsvpDeadlineAt <= t) {
+    return { error: "Presence voting is already closed." };
+  }
+  db.update(weeklyEvents).set({ rsvpDeadlineAt: t }).where(eq(weeklyEvents.id, eventId)).run();
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (!community) return { error: "Community not found." };
+
+  audit({
+    communityId: community.id,
+    actorId: user.id,
+    action: "weekly.close_presence",
+    entityType: "weekly_event",
+    entityId: event.id,
+  });
+
+  await notifyMany(
+    listApprovedMembers(community.id).map((m) => m.userId),
+    {
+      communityId: community.id,
+      type: "presence_closed",
+      title: `Presence closed · ${event.title}`,
+      body: `Voting on who is coming is finished for ${community.name}.`,
+      href: `/app/c/${community.slug}/events/${event.id}`,
+    },
+  );
+
+  revalidatePath(`/app/c/${community.slug}`);
+  revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
   return { ok: true };
 }
 
