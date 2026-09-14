@@ -94,6 +94,10 @@ export default async function CommunityOverviewPage({
     (s) => openSeasonIds.has(s.seasonId) && s.status !== "cancelled",
   );
   const weekMs = 7 * 24 * 60 * 60_000;
+  const dayMs = 24 * 60 * 60_000;
+  function startsWithin24h(startsAt?: number | null) {
+    return Boolean(startsAt && startsAt > now && startsAt <= now + dayMs);
+  }
   function sessionWithinHomeWindow(s: (typeof sessions)[number]) {
     const weeks = seasonOf(s.seasonId)?.homeVisibleWeeks ?? 4;
     return s.startsAt <= now + weeks * weekMs;
@@ -283,6 +287,7 @@ export default async function CommunityOverviewPage({
     const headcount = goingByEvent.get(e.id) ?? 0;
     const settled = settledByEvent.get(e.id) ?? false;
     const life = lifecycleStatusLabel(e, now, settled);
+    const soon = startsWithin24h(e.startsAt);
     const canClosePresence = Boolean(
       admin && ["open", "ready_to_book", "booked"].includes(e.status) && !closed,
     );
@@ -352,6 +357,7 @@ export default async function CommunityOverviewPage({
           pendingGuests={pendingGuests}
           needsVote={Boolean(!myStatus)}
           collapseChoices
+          soon={soon}
         />
       );
     }
@@ -384,6 +390,7 @@ export default async function CommunityOverviewPage({
         pendingGuests={pendingGuests}
         needsVote={Boolean(userId && !myStatus)}
         collapseChoices={false}
+        soon={soon}
       />
     );
   }
@@ -402,6 +409,7 @@ export default async function CommunityOverviewPage({
           ? ("not_going" as const)
           : null
       : null;
+    const soon = startsWithin24h(s.startsAt);
     return (
       <EventCard
         key={s.id}
@@ -415,6 +423,8 @@ export default async function CommunityOverviewPage({
         meta={`${onSheet + approvedGuestCount} going${approvedGuestCount ? ` · ${approvedGuestCount} guest${approvedGuestCount === 1 ? "" : "s"}` : ""} · Season session`}
         requests={requests || undefined}
         myPresence={myPresence}
+        attention={soon ? "soon" : null}
+        note={soon ? "Starts within 24 hours" : undefined}
       />
     );
   }

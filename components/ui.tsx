@@ -94,7 +94,7 @@ export function Badge({
   tone = "line",
 }: {
   children: ReactNode;
-  tone?: "line" | "lime" | "clay" | "cream";
+  tone?: "line" | "lime" | "clay" | "cream" | "going";
 }) {
   return (
     <span
@@ -102,6 +102,8 @@ export function Badge({
         "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize",
         tone === "line" && "border border-line text-ink/80",
         tone === "lime" && "bg-primary/20 text-ink",
+        tone === "going" &&
+          "bg-primary px-3 py-1 text-[13px] font-bold tracking-wide text-on-primary shadow-[0_4px_12px_rgba(47,107,79,0.28)]",
         tone === "clay" && "bg-secondary/20 text-ink",
         tone === "cream" && "bg-secondary/15 text-ink",
       )}

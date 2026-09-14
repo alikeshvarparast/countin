@@ -91,8 +91,8 @@ export function EventCard({
   durationMinutes?: number | null;
   requests?: string;
   emphasize?: boolean;
-  /** Urgent Home treatment: action needed or unanswered vote. */
-  attention?: "action" | "vote" | null;
+  /** Urgent Home treatment: action needed, unanswered vote, or starting within 24h. */
+  attention?: "action" | "vote" | "soon" | null;
   /** Your reply on this night — shown as a clear badge on Upcoming/Future. */
   myPresence?: "going" | "not_going" | "none" | null;
 }) {
@@ -107,7 +107,8 @@ export function EventCard({
         : myPresence === "none"
           ? "Not answered"
           : null;
-  const presenceTone = myPresence === "going" ? "lime" : myPresence === "not_going" ? "clay" : "line";
+  const presenceTone =
+    myPresence === "going" ? "going" : myPresence === "not_going" ? "clay" : "line";
   const urgent = Boolean(attention) || Boolean(emphasize);
 
   return (
@@ -119,9 +120,11 @@ export function EventCard({
           "vote-needs-reply border-warn/45 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.12)]",
         attention === "vote" &&
           "vote-needs-reply border-warn/45 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.12)]",
+        attention === "soon" &&
+          "event-soon border-primary/50 bg-[color:var(--color-success-wash)] shadow-[0_10px_28px_rgba(47,107,79,0.14)]",
         emphasize && !attention && "vote-needs-reply border-primary/40 shadow-[0_8px_22px_rgba(47,107,79,0.1)]",
-        myPresence === "going" && !urgent && "border-primary/25 bg-[color:var(--color-success-wash)]",
-        !urgent && !myPresence && "border-line",
+        myPresence === "going" && !urgent && "border-primary/35 bg-[color:var(--color-success-wash)]",
+        !urgent && myPresence !== "going" && "border-line",
       )}
       style={emphasize && !attention ? { backgroundColor: "var(--color-success-wash)" } : undefined}
     >
@@ -131,8 +134,18 @@ export function EventCard({
           <span className="font-medium text-ink">{title}</span>
           {when && <span className="ml-2 text-ink/45">{when}</span>}
         </p>
+        {attention === "soon" && !note && (
+          <p className="mt-1 text-xs font-semibold text-primary">Starts within 24 hours</p>
+        )}
         {note && (
-          <p className="mt-1 text-xs font-medium leading-snug text-warn line-clamp-3">{note}</p>
+          <p
+            className={cn(
+              "mt-1 text-xs font-medium leading-snug line-clamp-3",
+              attention === "soon" ? "text-primary" : "text-warn",
+            )}
+          >
+            {note}
+          </p>
         )}
         {meta && <p className="mt-0.5 truncate text-xs text-ink/45">{meta}</p>}
         {requests && !note && (

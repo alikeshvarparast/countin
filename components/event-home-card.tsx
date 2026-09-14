@@ -33,6 +33,7 @@ export function EventHomeCard({
   pendingGuests = 0,
   needsVote,
   collapseChoices,
+  soon,
 }: {
   slug: string;
   eventId: string;
@@ -59,10 +60,13 @@ export function EventHomeCard({
   pendingGuests?: number;
   needsVote?: boolean;
   collapseChoices?: boolean;
+  /** Starts within 24 hours — distinct Home treatment. */
+  soon?: boolean;
 }) {
   const href = `/app/c/${slug}/events/${eventId}`;
   const requests = pendingGuests > 0 ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}` : "";
   const highlight = Boolean(needsVote);
+  const soonHighlight = Boolean(soon) && !highlight;
 
   return (
     <div
@@ -70,7 +74,11 @@ export function EventHomeCard({
         "motion-press flex h-full flex-col rounded-2xl border bg-card px-3 py-3 shadow-[0_8px_24px_rgba(63,58,52,0.06)]",
         highlight
           ? "vote-needs-reply border-warn/45 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.14)]"
-          : "border-line",
+          : soonHighlight
+            ? "event-soon border-primary/50 bg-[color:var(--color-success-wash)] shadow-[0_10px_28px_rgba(47,107,79,0.14)]"
+            : myStatus === "going"
+              ? "border-primary/35 bg-[color:var(--color-success-wash)]"
+              : "border-line",
       )}
     >
       <div className="flex items-center gap-3">
@@ -96,12 +104,15 @@ export function EventHomeCard({
                     : "Your presence reply is needed"}
                 </p>
               )}
+              {soonHighlight && (
+                <p className="mt-1 text-xs font-semibold text-primary">Starts within 24 hours</p>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {collapseChoices && (
                 <Badge
                   tone={
-                    myStatus === "going" ? "lime" : myStatus === "not_going" ? "clay" : "line"
+                    myStatus === "going" ? "going" : myStatus === "not_going" ? "clay" : "line"
                   }
                 >
                   {myStatus === "going"
@@ -111,6 +122,7 @@ export function EventHomeCard({
                       : "Not answered"}
                 </Badge>
               )}
+              {!collapseChoices && myStatus === "going" && <Badge tone="going">Going</Badge>}
               {requests ? <Badge tone="clay">{requests}</Badge> : null}
               {status && <Badge tone={statusBadgeTone(status)}>{status.replaceAll("_", " ")}</Badge>}
               <EventMenu

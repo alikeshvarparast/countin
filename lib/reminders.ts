@@ -142,7 +142,68 @@ export async function sendDeadlineReminders() {
   }
 
   await sendEveGoingReminders();
+  await send24hGoingReminders();
   await sendUnpaidShareReminders();
+}
+
+/** Exactly ~24h before kickoff: remind people who are going. */
+export async function send24hGoingReminders() {
+  const t = now();
+
+  for (const event of db.select().from(weeklyEvents).all()) {
+    if (event.status === "cancelled" || event.status === "completed" || event.status === "polling") continue;
+    if (!event.startsAt || event.startsAt <= t) continue;
+    const dueAt = event.startsAt - DAY;
+    if (t < dueAt) continue;
+    const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+    if (!community) continue;
+
+    const goingIds = db
+      .select()
+      .from(rsvps)
+      .where(eq(rsvps.eventId, event.id))
+      .all()
+      .filter((r) => r.status === "going")
+      .map((r) => r.userId);
+    if (goingIds.length === 0) continue;
+
+    const when = hasClockTime(event.hasTime)
+      ? formatTime(event.startsAt, community.timezone)
+      : "time TBD";
+    await remindOnce(event.id, "starts_in_24h", goingIds, {
+      communityId: community.id,
+      title: `In 24 hours · ${event.title}`,
+      body: `You're going. Kickoff is ${when}.`,
+      href: `/app/c/${community.slug}/events/${event.id}`,
+    });
+  }
+
+  for (const session of db.select().from(seasonSessions).all()) {
+    if (session.status === "cancelled" || session.startsAt <= t) continue;
+    const dueAt = session.startsAt - DAY;
+    if (t < dueAt) continue;
+    const community = db.select().from(communities).where(eq(communities.id, session.communityId)).get();
+    if (!community) continue;
+    const season = db.select().from(seasons).where(eq(seasons.id, session.seasonId)).get();
+    if (!season || season.status === "cancelled") continue;
+
+    const goingIds = db
+      .select()
+      .from(sessionSlots)
+      .where(eq(sessionSlots.sessionId, session.id))
+      .all()
+      .filter((s) => sessionSlotIsGoing(s.status))
+      .map((s) => s.userId);
+    if (goingIds.length === 0) continue;
+
+    const when = formatTime(session.startsAt, community.timezone);
+    await remindOnce(session.id, "starts_in_24h", goingIds, {
+      communityId: community.id,
+      title: `In 24 hours · ${season.name}`,
+      body: `You're going. Kickoff is ${when}.`,
+      href: `/app/c/${community.slug}/sessions/${session.id}`,
+    });
+  }
 }
 
 /** 9pm club-local on the day before: remind people who are going. */
