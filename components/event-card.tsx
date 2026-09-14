@@ -64,6 +64,7 @@ export function EventCard({
   durationMinutes,
   requests,
   emphasize,
+  myPresence,
 }: {
   href: string;
   title: string;
@@ -76,30 +77,41 @@ export function EventCard({
   durationMinutes?: number | null;
   requests?: string;
   emphasize?: boolean;
+  /** Your reply on this night — shown as a clear badge on Upcoming/Future. */
+  myPresence?: "going" | "not_going" | "none" | null;
 }) {
   const when = startsAt
     ? `${formatEventTimeLine(startsAt, timeZone, hasTime, durationMinutes)}${location ? ` · ${location}` : ""}`
     : location || "";
   const extra = [meta, requests ? `${requests} waiting` : ""].filter(Boolean).join(" · ");
+  const presenceLabel =
+    myPresence === "going" ? "Going" : myPresence === "not_going" ? "Not going" : myPresence === "none" ? "No reply" : null;
+  const presenceTone = myPresence === "going" ? "lime" : myPresence === "not_going" ? "clay" : "line";
 
   return (
     <Link
       href={href}
       className={cn(
         "motion-press flex items-center gap-3 rounded-2xl border bg-card px-3 py-2",
-        emphasize ? "border-primary/40 shadow-[0_8px_22px_rgba(47,107,79,0.1)]" : "border-line",
+        emphasize ? "vote-needs-reply border-primary/40 shadow-[0_8px_22px_rgba(47,107,79,0.1)]" : "border-line",
+        myPresence === "going" && !emphasize && "border-primary/25 bg-[color:var(--color-success-wash)]",
       )}
       style={emphasize ? { backgroundColor: "var(--color-success-wash)" } : undefined}
     >
       <DateTile ms={startsAt} timeZone={timeZone} compact />
-      <p className="min-w-0 flex-1 truncate text-sm">
-        <span className="font-medium text-ink">{title}</span>
-        {when && <span className="ml-2 text-ink/45">{when}</span>}
-        {extra && <span className="ml-2 text-ink/40">{extra}</span>}
-      </p>
-      <div className="flex shrink-0 items-center gap-1">
-        {requests ? <Badge tone="clay">{requests}</Badge> : null}
-        {status && <Badge tone={statusBadgeTone(status)}>{status.replaceAll("_", " ")}</Badge>}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">
+          <span className="font-medium text-ink">{title}</span>
+          {when && <span className="ml-2 text-ink/45">{when}</span>}
+        </p>
+        {extra && <p className="truncate text-xs text-ink/40">{extra}</p>}
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {presenceLabel && <Badge tone={presenceTone}>{presenceLabel}</Badge>}
+        <div className="flex items-center gap-1">
+          {requests ? <Badge tone="clay">{requests}</Badge> : null}
+          {status && <Badge tone={statusBadgeTone(status)}>{status.replaceAll("_", " ")}</Badge>}
+        </div>
       </div>
     </Link>
   );

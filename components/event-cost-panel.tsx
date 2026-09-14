@@ -311,6 +311,16 @@ export function EventCostPanel({
       {/* Payment progress — after requests, until complete */}
       {requested && !completed && (
         <div className="space-y-4">
+          {unpaid.length > 0 && (
+            <div className="rounded-xl border border-warn/35 bg-[color:var(--color-warn-wash)] px-3 py-2 text-sm text-ink">
+              <p className="font-medium text-warn">
+                {unpaid.length} unpaid share{unpaid.length === 1 ? "" : "s"}
+              </p>
+              <p className="mt-0.5 text-xs text-ink/60">
+                Members who have not paid get a reminder every 24 hours. Admins get a warning too.
+              </p>
+            </div>
+          )}
           <PaymentGroup
             title="Not paid yet"
             empty="Everyone has marked paid or been verified."

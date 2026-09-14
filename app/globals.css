@@ -294,6 +294,85 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   }
 }
 
+@keyframes vote-needs-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(180, 83, 9, 0.35),
+      0 8px 24px rgba(180, 83, 9, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 10px rgba(180, 83, 9, 0),
+      0 8px 24px rgba(180, 83, 9, 0.06);
+  }
+}
+
+@keyframes vote-select-pop {
+  0% {
+    transform: scale(0.96);
+  }
+  55% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes vote-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55) rotate(-12deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes vote-selected-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(60, 134, 99, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(60, 134, 99, 0);
+  }
+}
+
+.vote-needs-reply {
+  animation: vote-needs-pulse 2.2s ease-in-out infinite;
+}
+
+.vote-option {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.vote-option:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.vote-option-selected {
+  animation:
+    vote-select-pop 300ms ease-out,
+    vote-selected-glow 2.6s ease-in-out 300ms infinite;
+}
+
+.vote-check {
+  animation: vote-check-in 240ms ease-out both;
+}
+
+.vote-bar-fill {
+  transition: width 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .motion-enter {
     animation: none;
@@ -304,6 +383,21 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   .motion-press:active,
   .nav-tab-transition {
     transition: none;
+    transform: none;
+  }
+
+  .vote-needs-reply,
+  .vote-option-selected,
+  .vote-check {
+    animation: none;
+  }
+
+  .vote-option,
+  .vote-bar-fill {
+    transition: none;
+  }
+
+  .vote-option:active:not(:disabled) {
     transform: none;
   }
 }

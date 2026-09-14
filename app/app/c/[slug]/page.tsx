@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
 import { EventCard, SectionTitle } from "@/components/event-card";
 import { EventHomeCard } from "@/components/event-home-card";
+import { ContractHomeCard } from "@/components/contract-home-card";
 import { ItemGrid } from "@/components/page-frame";
 import { PollCard } from "@/components/poll-card";
 import { db } from "@/lib/db";
@@ -118,7 +119,10 @@ export default async function CommunityOverviewPage({
     .filter((s) => sessionEnd(s) < now)
     .sort((a, b) => b.startsAt - a.startsAt);
   const votingSeasons = seasonRows.filter((s) => s.status === "signup");
-  const agreedSeasons = seasonRows.filter((s) => s.status === "agreed");
+  /** Closed agreement, nights not created yet — admin/owner follow-up only on Home. */
+  const agreedSeasons = admin
+    ? seasonRows.filter((s) => s.status === "agreed")
+    : [];
   const signupRows = db.select().from(seasonSignups).all();
   const contractRows = db.select().from(contracts).all();
 
@@ -129,27 +133,44 @@ export default async function CommunityOverviewPage({
   });
 
   const datedEvents = activeEvents.filter((e) => e.status !== "polling" && !needsCloseIds.has(e.id));
+  function hasMyPresenceVote(e: (typeof events)[number]) {
+    return Boolean(userId && rsvpRows.some((r) => r.eventId === e.id && r.userId === userId));
+  }
   function eventNeedsVote(e: (typeof events)[number]) {
     if (!userId || suspended) return false;
-    const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
+    // Booked nights stay in Needs reply until this member votes.
+    if (e.status === "booked") return !hasMyPresenceVote(e);
+    if (!["open", "ready_to_book"].includes(e.status)) return false;
     const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
-    if (!rsvpOpen) return false;
-    if (deadlinePassed && !admin) return false;
-    return !rsvpRows.some((r) => r.eventId === e.id && r.userId === userId);
+    if (deadlinePassed) return false;
+    return !hasMyPresenceVote(e);
   }
-  /** Keep open nights visible after you reply — until deadline / admin closes. */
-  function eventRsvpOpen(e: (typeof events)[number]) {
+  /**
+   * Presence / Needs reply: open voting before book, plus booked nights the viewer has not voted on.
+   * Upcoming only after the field is booked AND this member has voted.
+   */
+  function eventPresenceVotingOpen(e: (typeof events)[number]) {
     if (suspended) return false;
-    const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
+    if (e.status === "booked") return !hasMyPresenceVote(e);
+    if (!["open", "ready_to_book"].includes(e.status)) return false;
     const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
-    if (!rsvpOpen) return false;
-    if (deadlinePassed && !admin) return false;
-    return true;
+    return !deadlinePassed;
+  }
+  /** Admins/owners keep closed presence voting on Home; members do not. */
+  function eventClosedPresenceForStaff(e: (typeof events)[number]) {
+    if (!admin || suspended) return false;
+    if (!["open", "ready_to_book"].includes(e.status)) return false;
+    return Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
   }
   const needsVoteEvents = datedEvents.filter(eventNeedsVote);
-  const openRsvpEvents = datedEvents.filter(eventRsvpOpen);
-  const openRsvpIds = new Set(openRsvpEvents.map((e) => e.id));
-  const restEvents = datedEvents.filter((e) => !openRsvpIds.has(e.id));
+  const openRsvpEvents = datedEvents.filter(eventPresenceVotingOpen);
+  const closedPresenceForStaff = datedEvents.filter(eventClosedPresenceForStaff);
+  const presenceHomeEvents = admin ? [...openRsvpEvents, ...closedPresenceForStaff] : openRsvpEvents;
+  const presenceHomeIds = new Set(presenceHomeEvents.map((e) => e.id));
+  /** Upcoming/Future one-nights: field booked AND this member has already voted. */
+  const restEvents = datedEvents.filter(
+    (e) => !presenceHomeIds.has(e.id) && e.status === "booked" && hasMyPresenceVote(e),
+  );
   const upcomingEvents = restEvents.filter((e) => e.startsAt && e.startsAt <= now + weekMs);
   const futureEvents = restEvents.filter((e) => !e.startsAt || e.startsAt > now + weekMs);
   const upcomingSessionsSoon = upcomingSessions.filter((s) => s.startsAt <= now + weekMs);
@@ -267,7 +288,7 @@ export default async function CommunityOverviewPage({
     </>
   ) : null;
 
-  function renderWeeklyCard(e: (typeof events)[number]) {
+  function renderWeeklyCard(e: (typeof events)[number], opts?: { withPresence?: boolean }) {
     const eventRsvps = rsvpRows.filter((r) => r.eventId === e.id);
     const goingCount = eventRsvps.filter((r) => r.status === "going").length;
     const notGoingCount = eventRsvps.filter((r) => r.status === "not_going").length;
@@ -285,6 +306,32 @@ export default async function CommunityOverviewPage({
     const pendingGuests = guests.filter((g) => g.status === "pending").length;
     const deadlinePassed = Boolean(e.rsvpDeadlineAt && now > e.rsvpDeadlineAt);
     const rsvpOpen = ["open", "ready_to_book", "booked"].includes(e.status);
+    const headcount = goingByEvent.get(e.id) ?? 0;
+    const withPresence =
+      opts?.withPresence ??
+      (eventPresenceVotingOpen(e) || eventClosedPresenceForStaff(e));
+
+    if (!withPresence) {
+      return (
+        <EventCard
+          key={e.id}
+          href={`/app/c/${slug}/events/${e.id}`}
+          title={e.title}
+          startsAt={e.startsAt}
+          timeZone={timeZone}
+          location={e.location || clubLocation}
+          status={e.status}
+          hasTime={e.hasTime}
+          durationMinutes={e.durationMinutes}
+          meta={`${headcount} going${guestCount ? ` · ${guestCount} guest${guestCount === 1 ? "" : "s"}` : ""}`}
+          requests={pendingGuests > 0 ? `${pendingGuests} guest request${pendingGuests === 1 ? "" : "s"}` : undefined}
+          myPresence={
+            myStatus === "going" ? "going" : myStatus === "not_going" ? "not_going" : null
+          }
+        />
+      );
+    }
+
     return (
       <EventHomeCard
         key={e.id}
@@ -299,9 +346,11 @@ export default async function CommunityOverviewPage({
         durationMinutes={e.durationMinutes}
         goingCount={goingCount}
         notGoingCount={notGoingCount}
-        headcount={goingByEvent.get(e.id) ?? 0}
+        headcount={headcount}
         myStatus={myStatus}
-        canVote={Boolean(userId && rsvpOpen && !suspended && (!deadlinePassed || admin))}
+        canVote={Boolean(
+          userId && rsvpOpen && !suspended && (e.status === "booked" || !deadlinePassed || admin),
+        )}
         canAddGuest={Boolean(myStatus === "going" && !deadlinePassed && !suspended)}
         isAdmin={admin}
         canBook={Boolean(admin && ["open", "ready_to_book"].includes(e.status))}
@@ -309,7 +358,13 @@ export default async function CommunityOverviewPage({
         canEdit={Boolean(admin && e.status !== "cancelled" && e.status !== "completed")}
         guestCount={guestCount}
         pendingGuests={pendingGuests}
-        needsVote={Boolean(userId && rsvpOpen && !suspended && (!deadlinePassed || admin) && !myStatus)}
+        needsVote={Boolean(
+          userId &&
+            rsvpOpen &&
+            !suspended &&
+            !myStatus &&
+            (e.status === "booked" || !deadlinePassed),
+        )}
       />
     );
   }
@@ -320,6 +375,14 @@ export default async function CommunityOverviewPage({
     const approvedGuestCount = guestRows.filter((g) => g.sessionId === s.id && g.status === "approved").length;
     const onSheet = slotRows.filter((r) => r.sessionId === s.id && sessionSlotIsGoing(r.status)).length;
     const requests = pendingRequestLabel(guestPending, occasionalPending);
+    const mySlot = userId ? slotRows.find((r) => r.sessionId === s.id && r.userId === userId) : undefined;
+    const myPresence = mySlot
+      ? sessionSlotIsGoing(mySlot.status)
+        ? ("going" as const)
+        : mySlot.status === "contract_absent" || mySlot.status === "occasional_declined"
+          ? ("not_going" as const)
+          : null
+      : null;
     return (
       <EventCard
         key={s.id}
@@ -332,6 +395,7 @@ export default async function CommunityOverviewPage({
         durationMinutes={seasonOf(s.seasonId)?.durationMinutes}
         meta={`${onSheet + approvedGuestCount} going${approvedGuestCount ? ` · ${approvedGuestCount} guest${approvedGuestCount === 1 ? "" : "s"}` : ""} · Season session`}
         requests={requests || undefined}
+        myPresence={myPresence}
       />
     );
   }
@@ -380,30 +444,31 @@ export default async function CommunityOverviewPage({
       {(openVoteSeasons.length > 0 || agreedSeasons.length > 0) && (
         <section>
           <SectionTitle tone={needsVoteSeasons.length > 0 ? "vote" : "close"}>
-            {needsVoteSeasons.length > 0 ? "Needs your reply · contract" : "Contract agreement"}
+            {needsVoteSeasons.length > 0
+              ? "Needs your reply · contract"
+              : openVoteSeasons.length > 0
+                ? "Contract agreement"
+                : "Contract · create nights"}
           </SectionTitle>
           <ItemGrid>
             {openVoteSeasons.map((s) => {
               const inCount = signupRows.filter((r) => r.seasonId === s.id && r.intent !== "decline").length;
+              const outCount = signupRows.filter((r) => r.seasonId === s.id && r.intent === "decline").length;
               const mySignup = userId
                 ? signupRows.find((r) => r.seasonId === s.id && r.userId === userId)
                 : undefined;
-              const waitingOnYou = !mySignup;
               return (
-                <EventCard
+                <ContractHomeCard
                   key={s.id}
-                  href={`/app/c/${slug}/seasons/${s.id}`}
+                  slug={slug}
+                  seasonId={s.id}
                   title={s.name}
                   location={s.location || community.location}
-                  status="voting"
-                  meta={
-                    mySignup?.intent === "decline"
-                      ? `${inCount} agreed · you said not this season`
-                      : mySignup
-                        ? `${inCount} agreed · you agreed`
-                        : `${inCount} agreed · say if you want a contract place`
-                  }
-                  emphasize={waitingOnYou}
+                  agreeCount={inCount}
+                  declineCount={outCount}
+                  minPlayers={s.minPlayers}
+                  myIntent={mySignup?.intent}
+                  canVote={Boolean(userId && !suspended)}
                 />
               );
             })}
@@ -416,7 +481,8 @@ export default async function CommunityOverviewPage({
                   title={s.name}
                   location={s.location || community.location}
                   status="agreement closed"
-                  meta={`${onContract} on this season's contract · min ${s.minPlayers} · nights not created yet`}
+                  meta={`${onContract} on this season's contract · min ${s.minPlayers} · create the nights next`}
+                  emphasize
                 />
               );
             })}
@@ -424,19 +490,23 @@ export default async function CommunityOverviewPage({
         </section>
       )}
 
-      {openRsvpEvents.length > 0 && (
+      {presenceHomeEvents.length > 0 && (
         <section>
           <SectionTitle tone="vote">
-            {needsVoteEvents.length > 0 ? "Needs your reply" : "Presence open"}
+            {needsVoteEvents.length > 0
+              ? "Needs your reply"
+              : closedPresenceForStaff.length > 0 && openRsvpEvents.length === 0
+                ? "Presence closed · staff"
+                : "Presence open"}
           </SectionTitle>
-          <ItemGrid>{openRsvpEvents.map(renderWeeklyCard)}</ItemGrid>
+          <ItemGrid>{presenceHomeEvents.map((e) => renderWeeklyCard(e, { withPresence: true }))}</ItemGrid>
         </section>
       )}
 
       {needsCloseEvents.length > 0 && (
         <section>
           <SectionTitle tone="close">Needs to be closed</SectionTitle>
-          <ItemGrid>{needsCloseEvents.map(renderWeeklyCard)}</ItemGrid>
+          <ItemGrid>{needsCloseEvents.map((e) => renderWeeklyCard(e))}</ItemGrid>
         </section>
       )}
 
@@ -450,7 +520,7 @@ export default async function CommunityOverviewPage({
               Nothing in the next week.
             </p>
           )}
-          {upcomingEvents.map(renderWeeklyCard)}
+          {upcomingEvents.map((e) => renderWeeklyCard(e, { withPresence: true }))}
           {upcomingSessionsSoon.map(renderSessionCard)}
         </ItemGrid>
       </section>
@@ -459,7 +529,7 @@ export default async function CommunityOverviewPage({
         <section>
           <SectionTitle tone="future">Future · after 7 days</SectionTitle>
           <ItemGrid>
-            {futureEvents.map(renderWeeklyCard)}
+            {futureEvents.map((e) => renderWeeklyCard(e, { withPresence: true }))}
             {futureSessions.map(renderSessionCard)}
           </ItemGrid>
         </section>

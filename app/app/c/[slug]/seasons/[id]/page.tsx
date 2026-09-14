@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getCommunityBySlug, isAdmin, listApprovedMembers } from "@/lib/access";
-import { cancelSeason, closeSeasonSignup, createSeasonNights, setSeasonIntent } from "@/lib/actions/season";
+import { cancelSeason, closeSeasonSignup, createSeasonNights } from "@/lib/actions/season";
 import { SubmitButton } from "@/components/submit-button";
 import { SeasonRatesForm } from "@/components/season-rates-form";
 import { ContractMembersPanel } from "@/components/contract-members-panel";
+import { ContractAgreementVote } from "@/components/contract-agreement-vote";
 import { Badge, Card } from "@/components/ui";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { db } from "@/lib/db";
@@ -130,29 +131,14 @@ export default async function SeasonDetailPage({
             {deadlinePassed ? " · Deadline passed; voting stays open until an admin closes it" : ""}
           </p>
           {!myContract && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <form
-                action={async () => {
-                  "use server";
-                  await setSeasonIntent(season.id, "agree");
-                }}
-              >
-                <SubmitButton disabled={mySignup?.signup.intent === "agree"}>I agree to the contract</SubmitButton>
-              </form>
-              <form
-                action={async () => {
-                  "use server";
-                  await setSeasonIntent(season.id, "decline");
-                }}
-              >
-                <SubmitButton variant="ghost" disabled={mySignup?.signup.intent === "decline"}>
-                  Not this season
-                </SubmitButton>
-              </form>
-            </div>
+            <ContractAgreementVote
+              seasonId={season.id}
+              myIntent={mySignup?.signup.intent}
+              agreeCount={inRows.length}
+              declineCount={outRows.length}
+              canVote={Boolean(userId)}
+            />
           )}
-          {mySignup?.signup.intent === "agree" && <p className="mt-3 text-sm">You agreed to the contract.</p>}
-          {mySignup?.signup.intent === "decline" && <p className="mt-3 text-sm">You said you will not take a contract.</p>}
           {myContract && <p className="mt-3 text-sm">You already have a contract place.</p>}
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>

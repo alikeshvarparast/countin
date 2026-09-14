@@ -18,6 +18,7 @@ import {
 } from "@/lib/actions/polls";
 import { ActionMenu } from "@/components/action-menu";
 import { SubmitButton } from "@/components/submit-button";
+import { VoteNeedsFrame, VoteOptionButton } from "@/components/vote-choice";
 import { cn, formatWhen } from "@/lib/utils";
 
 export type PollVoter = {
@@ -83,15 +84,29 @@ export function PollCard({
   const [panel, setPanel] = useState<"details" | "suggest" | "admin" | "delete" | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const total = options.reduce((s, o) => s + o.votes, 0) || 1;
+  const needsReply = canVote && !myOption;
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-line bg-card p-5 shadow-[0_8px_24px_rgba(63,58,52,0.06)]">
+    <VoteNeedsFrame needsReply={needsReply} className="h-full">
+      <div
+        className={cn(
+          "flex h-full flex-col rounded-2xl border bg-card p-5 shadow-[0_8px_24px_rgba(63,58,52,0.06)]",
+          needsReply
+            ? "border-warn/40 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.12)]"
+            : "border-line",
+        )}
+      >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.18em] text-primary">Live poll</p>
+          <p className={cn("text-xs uppercase tracking-[0.18em]", needsReply ? "text-warn" : "text-primary")}>
+            {needsReply ? "Needs your vote" : "Live poll"}
+          </p>
           <h3 className="mt-1 font-display text-lg">{question}</h3>
           {closesLabel && <p className="mt-1 text-xs text-ink/45">{closesLabel}</p>}
           {myOption && <p className="mt-1 text-xs text-ink/60">Your vote: {myOption.label}</p>}
+          {needsReply && (
+            <p className="mt-1 text-xs font-medium text-warn">Choose an option, then submit</p>
+          )}
         </div>
         <div className="relative">
           <button
@@ -171,26 +186,22 @@ export function PollCard({
         {options.map((opt) => {
           const pct = Math.round((opt.votes / total) * 100);
           const active = selected === opt.id;
+          const locked = !canVote || (!changing && Boolean(myOption));
           return (
-            <li key={opt.id}>
-              <button
-                type="button"
-                disabled={!canVote || (!changing && Boolean(myOption))}
+            <li key={opt.id} className="relative">
+              <span
+                className="vote-bar-fill pointer-events-none absolute inset-y-0 left-0 rounded-xl bg-primary/12"
+                style={{ width: `${pct}%` }}
+                aria-hidden
+              />
+              <VoteOptionButton
+                active={active}
+                disabled={locked}
                 onClick={() => setSelected(opt.id)}
-                className={cn(
-                  "relative h-auto w-full overflow-hidden rounded-xl border px-3 py-3 text-left",
-                  active ? "border-primary/60" : "border-line",
-                  !canVote && "opacity-70",
-                )}
-              >
-                <span className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${pct}%` }} />
-                <span className="relative flex w-full items-center justify-between gap-3">
-                  <span className="break-words">{opt.label}</span>
-                  <span className="shrink-0 text-xs text-ink/50">
-                    {opt.votes} · {pct}%
-                  </span>
-                </span>
-              </button>
+                label={opt.label}
+                detail={`${opt.votes} · ${pct}%`}
+                className="relative bg-transparent"
+              />
             </li>
           );
         })}
@@ -510,5 +521,6 @@ export function PollCard({
         </form>
       )}
     </div>
+    </VoteNeedsFrame>
   );
 }

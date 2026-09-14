@@ -32,7 +32,9 @@ export default async function EventPresencePage({
   const suspended = isSuspended(community.id, userId);
   const deadlinePassed = Boolean(event.rsvpDeadlineAt && Date.now() > event.rsvpDeadlineAt);
   const rsvpOpen = ["open", "ready_to_book", "booked"].includes(event.status);
-  const canVote = Boolean(rsvpOpen && !suspended && (!deadlinePassed || admin));
+  const canVote = Boolean(
+    rsvpOpen && !suspended && (event.status === "booked" || !deadlinePassed || admin),
+  );
   if (!canVote) redirect(`/app/c/${slug}/events/${id}`);
 
   const rsvpRows = db.select().from(rsvps).where(eq(rsvps.eventId, event.id)).all();

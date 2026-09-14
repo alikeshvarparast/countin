@@ -87,7 +87,9 @@ export default async function WeeklyEventPage({
   const headcount = goingHeadcount(event.id);
   const collector = event.collectorUserId ? nameOf(event.collectorUserId) : "the collector";
   const rsvpOpen = ["open", "ready_to_book", "booked"].includes(event.status);
-  const canVote = Boolean(userId && rsvpOpen && !suspended && (!deadlinePassed || admin));
+  const canVote = Boolean(
+    userId && rsvpOpen && !suspended && (event.status === "booked" || !deadlinePassed || admin),
+  );
   const canAddGuest = Boolean(myRsvp?.rsvp.status === "going" && !deadlinePassed && !suspended);
   const canBook = Boolean(admin && ["open", "ready_to_book"].includes(event.status));
   const canCancel = Boolean(admin && event.status !== "cancelled");

@@ -26,6 +26,7 @@ import {
   votes,
 } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
+import { postClubChat } from "@/lib/chat";
 import { goingHeadcount, notifyCollector, syncWeeklyShares, attendanceShares, splitCents } from "@/lib/ledger";
 import { currentEventVotes, logVote } from "@/lib/votes";
 import { notify, notifyMany } from "@/lib/notify";
@@ -394,10 +395,17 @@ export async function setRsvp(formData: FormData) {
     return { error: "RSVP is not open." };
   }
   const staff = isStaff(event.communityId, user.id);
-  if (!staff && event.rsvpDeadlineAt && now() > event.rsvpDeadlineAt) {
+  // After the field is booked, members can still change presence (with admin notify / min checks).
+  if (
+    event.status !== "booked" &&
+    !staff &&
+    event.rsvpDeadlineAt &&
+    now() > event.rsvpDeadlineAt
+  ) {
     return { error: "The presence deadline has passed." };
   }
 
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
   const { eventWaitlist } = await import("@/lib/db/schema");
   const t = now();
   const existingWait = db
@@ -418,7 +426,6 @@ export async function setRsvp(formData: FormData) {
         .values({ id: createId(), eventId, userId: user.id, createdAt: t })
         .run();
     }
-    const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
     revalidatePath(`/app/c/${community?.slug}`);
     revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
     return { ok: true };
@@ -437,7 +444,6 @@ export async function setRsvp(formData: FormData) {
           .values({ id: createId(), eventId, userId: user.id, createdAt: t })
           .run();
       }
-      const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
       revalidatePath(`/app/c/${community?.slug}`);
       revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
       return { ok: true, waitlisted: true };
@@ -451,6 +457,35 @@ export async function setRsvp(formData: FormData) {
     .from(rsvps)
     .where(and(eq(rsvps.eventId, eventId), eq(rsvps.userId, user.id)))
     .get();
+
+  if (event.status === "booked" && existing?.status === "going" && status === "not_going") {
+    const { guests } = attendanceShares(eventId);
+    const myGuestCount = guests.filter((g) => g.hostUserId === user.id).length;
+    const after = goingHeadcount(eventId) - 1 - myGuestCount;
+    if (after < event.minPlayers && community) {
+      const warning = `${user.name} want permission to cancel the presence that make the numbers less than the minimum member required`;
+      postClubChat(community.id, user.id, warning);
+      await notifyMany(
+        listApprovedMembers(community.id).map((m) => m.userId),
+        {
+          communityId: community.id,
+          type: "presence_min_warning",
+          title: `Below minimum · ${event.title}`,
+          body: warning,
+          href: `/app/c/${community.slug}/events/${event.id}`,
+        },
+      );
+      revalidatePath(`/app/c/${community.slug}`);
+      revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+      revalidatePath(`/app/c/${community.slug}/chat`);
+      revalidatePath(`/app/c/${community.slug}`, "layout");
+      return {
+        error:
+          "Cannot leave: that would drop below the minimum players. The club was notified.",
+      };
+    }
+  }
+
   if (existing) {
     db.update(rsvps).set({ status, updatedAt: t }).where(eq(rsvps.id, existing.id)).run();
   } else {
@@ -463,10 +498,25 @@ export async function setRsvp(formData: FormData) {
     await promoteFromWaitlist(eventId);
   }
 
-  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
   if (community) {
     await maybeReadyToBook(community, event.id);
     await syncWeeklyShares(event.id);
+
+    if (event.status === "booked" && existing?.status !== status) {
+      const label = status === "going" ? "going" : "not going";
+      const staffIds = new Set(listAdmins(community.id).map((a) => a.userId));
+      if (community.createdById) staffIds.add(community.createdById);
+      staffIds.delete(user.id);
+      if (staffIds.size > 0) {
+        await notifyMany([...staffIds], {
+          communityId: community.id,
+          type: "presence_changed",
+          title: `Presence update · ${event.title}`,
+          body: `${user.name} changed to ${label}.`,
+          href: `/app/c/${community.slug}/events/${event.id}`,
+        });
+      }
+    }
   }
 
   revalidatePath(`/app/c/${community?.slug}`);

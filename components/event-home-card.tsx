@@ -65,7 +65,7 @@ export function EventHomeCard({
       className={cn(
         "motion-press flex h-full flex-col rounded-2xl border bg-card px-3 py-3 shadow-[0_8px_24px_rgba(63,58,52,0.06)]",
         highlight
-          ? "border-warn/35 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.1)]"
+          ? "vote-needs-reply border-warn/35 bg-[color:var(--color-warn-wash)] shadow-[0_10px_28px_rgba(180,83,9,0.1)]"
           : "border-line",
       )}
     >

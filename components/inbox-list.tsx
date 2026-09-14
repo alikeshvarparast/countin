@@ -25,7 +25,9 @@ function iconForType(type: string): LucideIcon {
   if (type.includes("cancel")) return Ban;
   if (type.includes("guest") || type.includes("join")) return UserPlus;
   if (type.includes("membership")) return Users;
-  if (type.includes("cost") || type.includes("payment") || type.includes("ledger")) return Wallet;
+  if (type.includes("cost") || type.includes("payment") || type.includes("ledger") || type.includes("share_unpaid")) {
+    return Wallet;
+  }
   if (type.includes("waitlist") || type.includes("deadline") || type.includes("rsvp") || type.includes("remind")) {
     return Clock;
   }
