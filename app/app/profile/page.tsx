@@ -34,7 +34,7 @@ export default async function ProfilePage() {
       user = db.select().from(users).where(eq(users.id, user.id)).get() ?? user;
     }
   }
-  const link = telegramDeepLink(user.telegramLinkToken);
+  const link = user.telegramLinkToken ? telegramDeepLink(user.telegramLinkToken) : null;
 
   const body = (
     <main className="mx-auto w-full max-w-lg px-4 py-10 lg:px-0 lg:py-0">

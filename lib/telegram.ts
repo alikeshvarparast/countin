@@ -13,7 +13,8 @@ export function telegramBotUsername() {
   return process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "") || cachedBotUsername;
 }
 
-export function telegramDeepLink(token: string) {
+export function telegramDeepLink(token?: string | null) {
+  if (!token) return null;
   const bot = telegramBotUsername();
   if (!bot) return null;
   return `https://t.me/${bot}?start=${token}`;
