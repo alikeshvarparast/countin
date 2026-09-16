@@ -17,6 +17,7 @@ export function PresenceVote({
   returnTo,
   /** Upcoming: hide Going/Not going until Change presence. */
   collapseChoices,
+  pendingCancel,
 }: {
   eventId: string;
   myStatus?: string | null;
@@ -27,6 +28,7 @@ export function PresenceVote({
   forceEdit?: boolean;
   returnTo?: string;
   collapseChoices?: boolean;
+  pendingCancel?: boolean;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState(myStatus ?? "");
@@ -61,6 +63,11 @@ export function PresenceVote({
         {needsReply && (
           <p className="mb-2 px-1 text-xs font-medium text-warn">Presence — your reply is needed</p>
         )}
+        {pendingCancel && (
+          <p className="mb-2 px-1 text-xs font-medium text-warn">
+            Leave request pending admin approve or decline.
+          </p>
+        )}
         {showChoices && (
           <div className="grid grid-cols-2 gap-1.5">
             <VoteOptionButton
@@ -89,6 +96,9 @@ export function PresenceVote({
               const result = await setRsvp(formData);
               if (result?.error) {
                 setError(result.error);
+                if ("pendingCancel" in result && result.pendingCancel) {
+                  router.refresh();
+                }
                 return;
               }
               setChanging(false);

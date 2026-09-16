@@ -20,13 +20,13 @@ import {
   ledgerEntries,
   pollOptions,
   polls,
+  presenceCancelRequests,
   rsvps,
   users,
   weeklyEvents,
   votes,
 } from "@/lib/db/schema";
 import { createId, now } from "@/lib/id";
-import { postClubChat } from "@/lib/chat";
 import { goingHeadcount, notifyCollector, syncWeeklyShares, attendanceShares, splitCents } from "@/lib/ledger";
 import { currentEventVotes, logVote } from "@/lib/votes";
 import { notify, notifyMany } from "@/lib/notify";
@@ -460,10 +460,49 @@ export async function setRsvp(formData: FormData) {
     const myGuestCount = guests.filter((g) => g.hostUserId === user.id).length;
     const after = goingHeadcount(eventId) - 1 - myGuestCount;
     if (after < event.minPlayers && community) {
-      const warning = `${user.name} want permission to cancel the presence that make the numbers less than the minimum member required`;
-      postClubChat(community.id, user.id, warning);
+      const existingReq = db
+        .select()
+        .from(presenceCancelRequests)
+        .where(
+          and(eq(presenceCancelRequests.eventId, eventId), eq(presenceCancelRequests.userId, user.id)),
+        )
+        .get();
+      if (existingReq) {
+        db.update(presenceCancelRequests)
+          .set({ status: "pending", createdAt: t, decidedAt: null, decidedById: null })
+          .where(eq(presenceCancelRequests.id, existingReq.id))
+          .run();
+      } else {
+        db.insert(presenceCancelRequests)
+          .values({
+            id: createId(),
+            eventId,
+            userId: user.id,
+            status: "pending",
+            createdAt: t,
+          })
+          .run();
+      }
+
+      const warning = `${user.name} wants permission to cancel presence — that would drop below the minimum ${event.minPlayers} players.`;
+
+      const staffIds = new Set(listAdmins(community.id).map((a) => a.userId));
+      if (community.createdById) staffIds.add(community.createdById);
+      staffIds.delete(user.id);
+      const href = `/app/c/${community.slug}/events/${event.id}#presence-cancel`;
+      if (staffIds.size > 0) {
+        await notifyMany([...staffIds], {
+          communityId: community.id,
+          type: "presence_min_warning",
+          title: `Approve leave? · ${event.title}`,
+          body: warning,
+          href,
+        });
+      }
       await notifyMany(
-        listApprovedMembers(community.id).map((m) => m.userId),
+        listApprovedMembers(community.id)
+          .map((m) => m.userId)
+          .filter((id) => id !== user.id && !staffIds.has(id)),
         {
           communityId: community.id,
           type: "presence_min_warning",
@@ -472,13 +511,14 @@ export async function setRsvp(formData: FormData) {
           href: `/app/c/${community.slug}/events/${event.id}`,
         },
       );
+
       revalidatePath(`/app/c/${community.slug}`);
       revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
-      revalidatePath(`/app/c/${community.slug}/chat`);
       revalidatePath(`/app/c/${community.slug}`, "layout");
       return {
         error:
-          "Cannot leave: that would drop below the minimum players. The club was notified.",
+          "That would drop below the minimum. Your leave request was sent to admins for approve or decline.",
+        pendingCancel: true,
       };
     }
   }
@@ -489,6 +529,27 @@ export async function setRsvp(formData: FormData) {
     db.insert(rsvps)
       .values({ id: createId(), eventId, userId: user.id, status, updatedAt: t })
       .run();
+  }
+
+  // Leaving request is moot once they confirm going again.
+  if (status === "going") {
+    const pendingLeave = db
+      .select()
+      .from(presenceCancelRequests)
+      .where(
+        and(
+          eq(presenceCancelRequests.eventId, eventId),
+          eq(presenceCancelRequests.userId, user.id),
+          eq(presenceCancelRequests.status, "pending"),
+        ),
+      )
+      .get();
+    if (pendingLeave) {
+      db.update(presenceCancelRequests)
+        .set({ status: "cancelled", decidedAt: t, decidedById: user.id })
+        .where(eq(presenceCancelRequests.id, pendingLeave.id))
+        .run();
+    }
   }
 
   if (status === "not_going" && event.maxPlayers != null) {
@@ -516,6 +577,97 @@ export async function setRsvp(formData: FormData) {
     }
   }
 
+  revalidatePath(`/app/c/${community?.slug}`);
+  revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
+  return { ok: true };
+}
+
+export async function decidePresenceCancel(formData: FormData) {
+  const user = await requireUser();
+  const requestId = String(formData.get("requestId") ?? "");
+  const decision = String(formData.get("decision") ?? "");
+  if (decision !== "approved" && decision !== "declined") {
+    return { error: "Pick approve or decline." };
+  }
+  const req = db.select().from(presenceCancelRequests).where(eq(presenceCancelRequests.id, requestId)).get();
+  if (!req || req.status !== "pending") return { error: "Request not found." };
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, req.eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireAdmin(event.communityId, user.id);
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  if (!community) return { error: "Community not found." };
+  const t = now();
+
+  if (decision === "approved") {
+    const existing = db
+      .select()
+      .from(rsvps)
+      .where(and(eq(rsvps.eventId, event.id), eq(rsvps.userId, req.userId)))
+      .get();
+    if (existing) {
+      db.update(rsvps).set({ status: "not_going", updatedAt: t }).where(eq(rsvps.id, existing.id)).run();
+    } else {
+      db.insert(rsvps)
+        .values({ id: createId(), eventId: event.id, userId: req.userId, status: "not_going", updatedAt: t })
+        .run();
+    }
+    if (event.maxPlayers != null) await promoteFromWaitlist(event.id);
+    await syncWeeklyShares(event.id);
+    db.update(presenceCancelRequests)
+      .set({ status: "approved", decidedAt: t, decidedById: user.id })
+      .where(eq(presenceCancelRequests.id, req.id))
+      .run();
+
+    await notify({
+      userId: req.userId,
+      communityId: community.id,
+      type: "presence_cancel_decided",
+      title: `Leave approved · ${event.title}`,
+      body: `${user.name} approved your request to mark not going.`,
+      href: `/app/c/${community.slug}/events/${event.id}`,
+    });
+  } else {
+    db.update(presenceCancelRequests)
+      .set({ status: "declined", decidedAt: t, decidedById: user.id })
+      .where(eq(presenceCancelRequests.id, req.id))
+      .run();
+    await notify({
+      userId: req.userId,
+      communityId: community.id,
+      type: "presence_cancel_decided",
+      title: `Leave declined · ${event.title}`,
+      body: `${user.name} kept you on the going list for now.`,
+      href: `/app/c/${community.slug}/events/${event.id}`,
+    });
+  }
+
+  audit({
+    communityId: community.id,
+    actorId: user.id,
+    action: decision === "approved" ? "weekly.presence_cancel_approve" : "weekly.presence_cancel_decline",
+    entityType: "weekly_event",
+    entityId: event.id,
+  });
+
+  revalidatePath(`/app/c/${community.slug}`);
+  revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
+  revalidatePath(`/app/c/${community.slug}`, "layout");
+  return { ok: true };
+}
+
+export async function cancelPresenceCancelRequest(requestId: string) {
+  const user = await requireUser();
+  const req = db.select().from(presenceCancelRequests).where(eq(presenceCancelRequests.id, requestId)).get();
+  if (!req || req.status !== "pending") return { error: "Request not found." };
+  if (req.userId !== user.id) return { error: "Only you can withdraw this request." };
+  const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, req.eventId)).get();
+  if (!event) return { error: "Event not found." };
+  requireActiveMember(event.communityId, user.id);
+  const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
+  db.update(presenceCancelRequests)
+    .set({ status: "cancelled", decidedAt: now(), decidedById: user.id })
+    .where(eq(presenceCancelRequests.id, req.id))
+    .run();
   revalidatePath(`/app/c/${community?.slug}`);
   revalidatePath(`/app/c/${community?.slug}/events/${event.id}`);
   return { ok: true };

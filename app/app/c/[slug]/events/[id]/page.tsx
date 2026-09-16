@@ -8,6 +8,7 @@ import { EventCostPanel } from "@/components/event-cost-panel";
 import { GuestForm } from "@/components/guest-form";
 import { GuestWaitlist, GuestCancelButton } from "@/components/guest-waitlist";
 import { NonVotersToggle } from "@/components/non-voters-toggle";
+import { PresenceCancelPanel } from "@/components/presence-cancel-panel";
 import { PresenceVote } from "@/components/presence-vote";
 import { Avatar } from "@/components/avatar";
 import { PageFrame } from "@/components/page-frame";
@@ -20,6 +21,7 @@ import {
   pollOptions,
   polls,
   pollSuggestions,
+  presenceCancelRequests,
   rsvps,
   users,
   votes,
@@ -75,6 +77,19 @@ export default async function WeeklyEventPage({
   const pendingGuests = guests.filter((g) => g.status === "pending");
   const people = db.select({ id: users.id, name: users.name }).from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
+  const pendingCancel = db
+    .select()
+    .from(presenceCancelRequests)
+    .where(eq(presenceCancelRequests.eventId, event.id))
+    .all()
+    .filter((r) => r.status === "pending")
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      userName: nameOf(r.userId),
+      askedAt: r.createdAt,
+    }));
   const going = rsvpRows.filter((r) => r.rsvp.status === "going");
   const notGoing = rsvpRows.filter((r) => r.rsvp.status === "not_going");
   const votedIds = new Set(rsvpRows.map((r) => r.rsvp.userId));
@@ -265,6 +280,9 @@ export default async function WeeklyEventPage({
                 goingCount={headcount}
                 notGoingCount={notGoing.length}
                 canVote={canVote}
+                pendingCancel={Boolean(
+                  userId && pendingCancel.some((r) => r.userId === userId),
+                )}
               />
             </div>
           )}
@@ -312,6 +330,14 @@ export default async function WeeklyEventPage({
           </div>
         </div>
       )}
+
+      <PresenceCancelPanel
+        pending={pendingCancel}
+        timezone={community.timezone}
+        canDecide={admin}
+        userId={userId}
+        minPlayers={event.minPlayers}
+      />
 
       <GuestWaitlist
         pending={pendingGuests.map((g) => ({

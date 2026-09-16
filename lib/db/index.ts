@@ -610,6 +610,18 @@ CREATE TABLE IF NOT EXISTS event_waitlist (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS event_waitlist_event_user_uidx ON event_waitlist(event_id, user_id);
 CREATE INDEX IF NOT EXISTS event_waitlist_event_idx ON event_waitlist(event_id, created_at);
+
+CREATE TABLE IF NOT EXISTS presence_cancel_requests (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES weekly_events(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER,
+  decided_by_id TEXT REFERENCES users(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS presence_cancel_event_user_uidx ON presence_cancel_requests(event_id, user_id);
+CREATE INDEX IF NOT EXISTS presence_cancel_event_status_idx ON presence_cancel_requests(event_id, status, created_at);
 `);
 
 sqlite.exec(`

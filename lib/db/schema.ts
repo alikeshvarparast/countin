@@ -460,6 +460,28 @@ export const eventWaitlist = sqliteTable(
   ],
 );
 
+/** Member asked to leave after booking would drop below min players — staff decide. */
+export const presenceCancelRequests = sqliteTable(
+  "presence_cancel_requests",
+  {
+    id: text("id").primaryKey(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => weeklyEvents.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status").notNull().default("pending"), // pending | approved | declined | cancelled
+    createdAt: integer("created_at").notNull(),
+    decidedAt: integer("decided_at"),
+    decidedById: text("decided_by_id").references(() => users.id),
+  },
+  (t) => [
+    uniqueIndex("presence_cancel_event_user_uidx").on(t.eventId, t.userId),
+    index("presence_cancel_event_status_idx").on(t.eventId, t.status, t.createdAt),
+  ],
+);
+
 export const chatMessages = sqliteTable(
   "chat_messages",
   {
