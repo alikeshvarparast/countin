@@ -167,6 +167,11 @@ export default async function WeeklyEventPage({
           </p>
         </div>
         <div className="flex items-start gap-2">
+          {pendingCancel.length > 0 && (
+            <Badge tone="warn">
+              {pendingCancel.length} leave request{pendingCancel.length === 1 ? "" : "s"}
+            </Badge>
+          )}
           {pendingGuests.length > 0 && (
             <Badge tone="clay">
               {pendingGuests.length} guest request{pendingGuests.length === 1 ? "" : "s"}
@@ -190,6 +195,14 @@ export default async function WeeklyEventPage({
           />
         </div>
       </div>
+
+      <PresenceCancelPanel
+        pending={pendingCancel}
+        timezone={community.timezone}
+        canDecide={admin}
+        userId={userId}
+        minPlayers={event.minPlayers}
+      />
 
       {poll && event.status === "polling" && (
         <PollCard
@@ -271,6 +284,9 @@ export default async function WeeklyEventPage({
             {pendingGuests.length > 0
               ? ` · ${pendingGuests.length} guest request${pendingGuests.length === 1 ? "" : "s"}`
               : ""}
+            {pendingCancel.length > 0
+              ? ` · ${pendingCancel.length} leave request${pendingCancel.length === 1 ? "" : "s"}`
+              : ""}
           </p>
           {(canVote || myRsvp) && (
             <div className="mt-4">
@@ -291,12 +307,20 @@ export default async function WeeklyEventPage({
               <p className="text-xs uppercase tracking-[0.18em] text-secondary">Going · {going.length}</p>
               <ul className="mt-1 space-y-1 text-sm">
                 {going.length === 0 && <li className="text-ink/45">No one yet.</li>}
-                {going.map(({ user }) => (
+                {going.map(({ user }) => {
+                  const leavePending = pendingCancel.some((r) => r.userId === user.id);
+                  return (
                   <li key={user.id} className="flex items-center gap-2 py-0.5">
                     <Avatar src={user.imageUrl} name={user.name} size="xs" />
-                    <span className="truncate">{user.name}</span>
+                    <span className="truncate">
+                      {user.name}
+                      {leavePending ? (
+                        <span className="text-warn"> · leave pending</span>
+                      ) : null}
+                    </span>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
             <div>
@@ -330,14 +354,6 @@ export default async function WeeklyEventPage({
           </div>
         </div>
       )}
-
-      <PresenceCancelPanel
-        pending={pendingCancel}
-        timezone={community.timezone}
-        canDecide={admin}
-        userId={userId}
-        minPlayers={event.minPlayers}
-      />
 
       <GuestWaitlist
         pending={pendingGuests.map((g) => ({
