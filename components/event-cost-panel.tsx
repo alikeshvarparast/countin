@@ -20,7 +20,11 @@ export type CostShareEntry = {
   fromName: string;
   amountCents: number;
   status: string;
+  /** Outside the app — share only; receiver verifies directly. */
+  offline?: boolean;
 };
+
+type OutsidePayer = { key: string; name: string };
 
 export function EventCostPanel({
   eventId,
@@ -61,6 +65,8 @@ export function EventCostPanel({
   const [collector, setCollector] = useState(collectorUserId ?? members[0]?.userId ?? "");
   const [amount, setAmount] = useState(totalCostCents != null ? String(totalCostCents / 100) : "");
   const [selected, setSelected] = useState<string[]>(initialAttendeeIds);
+  const [outside, setOutside] = useState<OutsidePayer[]>([]);
+  const [outsideDraft, setOutsideDraft] = useState("");
   const [editingPayers, setEditingPayers] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -76,12 +82,13 @@ export function EventCostPanel({
     (requested ? collectorPayment : collectorPayment);
 
   const payerIds = selected.filter((id) => id !== collector);
+  const shareCount = payerIds.length + outside.length;
   const sharePreview = useMemo(() => {
-    const n = payerIds.length;
+    const n = shareCount;
     const cents = Math.round(Number(amount) * 100);
     if (!n || !Number.isFinite(cents) || cents <= 0) return null;
     return Math.floor(cents / n) / 100;
-  }, [amount, payerIds.length]);
+  }, [amount, shareCount]);
 
   const selectedMembers = useMemo(
     () =>
@@ -110,6 +117,14 @@ export function EventCostPanel({
   function stopEditingPayers() {
     setEditingPayers(false);
     setQuery("");
+    setOutsideDraft("");
+  }
+
+  function addOutside() {
+    const name = outsideDraft.trim();
+    if (name.length < 1) return;
+    setOutside((prev) => [...prev, { key: `${Date.now()}-${prev.length}`, name }]);
+    setOutsideDraft("");
   }
 
   const phaseLabel = completed
@@ -195,11 +210,12 @@ export function EventCostPanel({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <p className="text-xs uppercase tracking-wider text-secondary">
-                Members who share · {payerIds.length}
+                Who shares · {shareCount}
               </p>
               <p className="mt-0.5 text-xs text-ink/50">
                 Default is everyone going
                 {collector ? " · receiver does not pay a share" : ""}
+                {" · "}you can add people who are not on the app
               </p>
             </div>
             {isAdmin && !editingPayers && (
@@ -211,7 +227,7 @@ export function EventCostPanel({
 
           {!editingPayers ? (
             <ul className="max-h-56 overflow-y-auto rounded-xl border border-line bg-muted/30 p-2 text-sm">
-              {selectedMembers.length === 0 && (
+              {selectedMembers.length === 0 && outside.length === 0 && (
                 <li className="px-1 py-2 text-ink/45">No one on the share list yet.</li>
               )}
               {selectedMembers.map((m) => (
@@ -220,6 +236,12 @@ export function EventCostPanel({
                   {m.userId === collector ? (
                     <span className="shrink-0 text-xs text-ink/40">receiver</span>
                   ) : null}
+                </li>
+              ))}
+              {outside.map((p) => (
+                <li key={p.key} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5">
+                  <span className="truncate">{p.name}</span>
+                  <span className="shrink-0 text-xs text-ink/40">outside app</span>
                 </li>
               ))}
             </ul>
@@ -289,12 +311,54 @@ export function EventCostPanel({
                   );
                 })}
               </ul>
+
+              <div className="space-y-2 rounded-xl border border-dashed border-line bg-muted/20 p-3">
+                <p className="text-xs uppercase tracking-wider text-secondary">Not on the app</p>
+                <p className="text-xs text-ink/50">
+                  Add a name to include their share. No invite or reminder — the receiver marks them paid.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    value={outsideDraft}
+                    onChange={(e) => setOutsideDraft(e.target.value)}
+                    placeholder="Name"
+                    className="min-w-[10rem] flex-1"
+                    autoComplete="off"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOutside();
+                      }
+                    }}
+                  />
+                  <Button type="button" variant="ghost" onClick={addOutside}>
+                    Add
+                  </Button>
+                </div>
+                {outside.length > 0 && (
+                  <ul className="space-y-1 text-sm">
+                    {outside.map((p) => (
+                      <li key={p.key} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{p.name}</span>
+                        <button
+                          type="button"
+                          className="text-xs text-primary"
+                          onClick={() => setOutside((prev) => prev.filter((x) => x.key !== p.key))}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" className="text-sm text-primary" onClick={stopEditingPayers}>
                   Done
                 </button>
                 <p className="text-xs text-ink/45">
-                  {selected.length} selected · {filteredMembers.length} shown
+                  {selected.length} members · {outside.length} outside · {filteredMembers.length} shown
                 </p>
               </div>
             </div>
@@ -317,7 +381,8 @@ export function EventCostPanel({
                 {unpaid.length} unpaid share{unpaid.length === 1 ? "" : "s"}
               </p>
               <p className="mt-0.5 text-xs text-ink/60">
-                Members who have not paid get a reminder every 24 hours. Admins get a warning too.
+                Members who have not paid get a reminder every 24 hours. Outside-app shares have no I
+                have paid step — mark them received when you collect in person.
               </p>
             </div>
           )}
@@ -331,6 +396,12 @@ export function EventCostPanel({
             onClaim={async (id) => {
               setError(null);
               const result = await claimLedgerPayment(id);
+              if (result?.error) setError(result.error);
+              else router.refresh();
+            }}
+            onVerify={async (id) => {
+              setError(null);
+              const result = await verifyLedgerPayment(id);
               if (result?.error) setError(result.error);
               else router.refresh();
             }}
@@ -403,6 +474,7 @@ export function EventCostPanel({
                 fd.set("amount", amount);
                 fd.set("collectorUserId", collector);
                 for (const id of selected) fd.append("attendeeId", id);
+                for (const p of outside) fd.append("offlineName", p.name);
                 void sendWeeklyPaymentRequest(fd).then((result) => {
                   if (result?.error) setError(result.error);
                   else router.refresh();
@@ -474,14 +546,28 @@ function PaymentGroup({
             .slice()
             .sort((a, b) => a.fromName.localeCompare(b.fromName))
             .map((row) => {
-              const canClaim = Boolean(onClaim && currentUserId && row.fromUserId === currentUserId);
-              const canVerify = Boolean(onVerify && currentUserId && collectorUserId === currentUserId);
+              const canClaim = Boolean(
+                onClaim && currentUserId && row.fromUserId === currentUserId && !row.offline,
+              );
+              const canVerifyClaimed = Boolean(
+                onVerify && currentUserId && collectorUserId === currentUserId && row.status === "claimed",
+              );
+              const canVerifyOffline = Boolean(
+                onVerify &&
+                  currentUserId &&
+                  collectorUserId === currentUserId &&
+                  row.offline &&
+                  row.status === "pending",
+              );
               return (
                 <li
                   key={row.id}
                   className="flex items-center gap-2 border-b border-line px-3 py-2 last:border-0"
                 >
-                  <span className="min-w-0 flex-1 truncate">{row.fromName}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {row.fromName}
+                    {row.offline ? <span className="text-ink/40"> · outside</span> : null}
+                  </span>
                   <span className="shrink-0 text-ink/55">{formatMoney(row.amountCents, currency)}</span>
                   {canClaim && (
                     <form
@@ -494,14 +580,14 @@ function PaymentGroup({
                       </SubmitButton>
                     </form>
                   )}
-                  {canVerify && (
+                  {(canVerifyClaimed || canVerifyOffline) && (
                     <form
                       action={async () => {
                         await onVerify?.(row.id);
                       }}
                     >
                       <SubmitButton variant="ghost" size="sm">
-                        Verified
+                        {canVerifyOffline ? "Mark received" : "Verified"}
                       </SubmitButton>
                     </form>
                   )}

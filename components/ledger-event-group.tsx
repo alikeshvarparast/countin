@@ -9,9 +9,10 @@ import { formatMoney, formatWhen } from "@/lib/utils";
 
 const PREVIEW = 3;
 
-function statusLabel(status: string) {
+function statusLabel(status: string, offline?: boolean) {
   if (status === "settled") return "Settled";
   if (status === "claimed") return "Waiting for verify";
+  if (offline) return "Outside · verify";
   return "Due";
 }
 
@@ -23,6 +24,7 @@ export type LedgerEntryView = {
   reason: string;
   status: string;
   createdAt: number;
+  offline?: boolean;
   canClaim: boolean;
   canVerify: boolean;
   verifyHint: boolean;
@@ -74,13 +76,18 @@ export function LedgerEventGroup({
               <span className="ml-2">{formatMoney(row.amountCents, currency)}</span>
               <span className="ml-2 text-ink/45">
                 {row.reason.replaceAll("_", " ")} · {formatWhen(row.createdAt, timeZone)}
+                {row.offline ? " · outside app" : ""}
                 {row.canClaim ? " · your payment due" : ""}
-                {row.verifyHint ? " · verify this payment" : ""}
+                {row.verifyHint
+                  ? row.offline && row.status === "pending"
+                    ? " · verify directly"
+                    : " · verify this payment"
+                  : ""}
               </span>
             </p>
             <div className="flex shrink-0 items-center gap-2">
               <Badge tone={row.status === "settled" ? "lime" : row.status === "claimed" ? "line" : "clay"}>
-                {statusLabel(row.status)}
+                {statusLabel(row.status, row.offline)}
               </Badge>
               {row.canClaim && (
                 <form
@@ -100,7 +107,7 @@ export function LedgerEventGroup({
                   }}
                 >
                   <SubmitButton variant="ghost" size="sm">
-                    Verified
+                    {row.offline && row.status === "pending" ? "Mark received" : "Verified"}
                   </SubmitButton>
                 </form>
               )}

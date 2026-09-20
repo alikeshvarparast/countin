@@ -60,6 +60,8 @@ export function PollCard({
   staff,
   canVote,
   canSeeDetails,
+  memberCount,
+  nonVoters = [],
 }: {
   pollId: string;
   question: string;
@@ -75,6 +77,9 @@ export function PollCard({
   staff: boolean;
   canVote: boolean;
   canSeeDetails: boolean;
+  /** Approved members who can vote — used for “haven’t voted” count. */
+  memberCount?: number;
+  nonVoters?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const myOption = options.find((o) => o.mine);
@@ -83,8 +88,16 @@ export function PollCard({
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<"details" | "suggest" | "admin" | "delete" | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
-  const total = options.reduce((s, o) => s + o.votes, 0) || 1;
+  const totalVotes = options.reduce((s, o) => s + o.votes, 0);
+  const total = totalVotes || 1;
   const needsReply = canVote && !myOption;
+  const uniqueVoters = new Set(voters.map((v) => v.userId)).size;
+  const notVotedCount =
+    nonVoters.length > 0
+      ? nonVoters.length
+      : typeof memberCount === "number"
+        ? Math.max(0, memberCount - uniqueVoters)
+        : null;
 
   return (
     <VoteNeedsFrame needsReply={needsReply} className="h-full">
@@ -104,6 +117,14 @@ export function PollCard({
           <h3 className="mt-1 font-display text-lg">{question}</h3>
           {closesLabel && <p className="mt-1 text-xs text-ink/45">{closesLabel}</p>}
           {myOption && <p className="mt-1 text-xs text-ink/60">Your vote: {myOption.label}</p>}
+          {(myOption || totalVotes > 0) && (
+            <p className="mt-1 text-xs text-ink/55">
+              {totalVotes} vote{totalVotes === 1 ? "" : "s"}
+              {notVotedCount != null
+                ? ` · ${notVotedCount} ha${notVotedCount === 1 ? "s" : "ve"}n’t voted`
+                : ""}
+            </p>
+          )}
           {needsReply && (
             <p className="mt-1 text-xs font-medium text-warn">Choose an option, then submit</p>
           )}
@@ -199,7 +220,7 @@ export function PollCard({
                 disabled={locked}
                 onClick={() => setSelected(opt.id)}
                 label={opt.label}
-                detail={`${opt.votes} · ${pct}%`}
+                detail={`${opt.votes} vote${opt.votes === 1 ? "" : "s"} · ${pct}%`}
                 className="relative bg-transparent"
               />
             </li>
@@ -271,6 +292,24 @@ export function PollCard({
                   </div>
                 );
               })}
+              {(nonVoters.length > 0 || (notVotedCount != null && notVotedCount > 0)) && (
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-secondary">
+                    Haven’t voted · {nonVoters.length || notVotedCount}
+                  </p>
+                  {nonVoters.length === 0 ? (
+                    <p className="mt-1 text-ink/45">{notVotedCount} member{notVotedCount === 1 ? "" : "s"}.</p>
+                  ) : (
+                    <ul className="mt-1 space-y-1">
+                      {nonVoters.map((p) => (
+                        <li key={p.id} className="font-medium">
+                          {p.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               <p className="pt-2 text-xs uppercase tracking-[0.18em] text-secondary">History</p>
               {history.length === 0 ? (
                 <p className="text-ink/50">No changes recorded yet.</p>

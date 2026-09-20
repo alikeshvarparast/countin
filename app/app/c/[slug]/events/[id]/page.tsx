@@ -93,7 +93,8 @@ export default async function WeeklyEventPage({
   const going = rsvpRows.filter((r) => r.rsvp.status === "going");
   const notGoing = rsvpRows.filter((r) => r.rsvp.status === "not_going");
   const votedIds = new Set(rsvpRows.map((r) => r.rsvp.userId));
-  const nonVoters = listApprovedMembers(community.id)
+  const approvedMembers = listApprovedMembers(community.id);
+  const nonVoters = approvedMembers
     .filter((m) => !votedIds.has(m.userId))
     .map((m) => ({ id: m.userId, name: m.name, imageUrl: m.imageUrl }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -111,11 +112,15 @@ export default async function WeeklyEventPage({
   const canBook = Boolean(admin && ["open", "ready_to_book"].includes(event.status));
   const canCancel = Boolean(admin && event.status !== "cancelled");
   const canClosePresence = Boolean(admin && rsvpOpen && !deadlinePassed);
-  const members = listApprovedMembers(community.id).map((m) => ({
+  const members = approvedMembers.map((m) => ({
     userId: m.userId,
     name: m.name,
     paymentInfo: m.paymentInfo,
   }));
+  const pollNonVoters = approvedMembers
+    .filter((m) => !allVotes.some((v) => v.userId === m.userId))
+    .map((m) => ({ id: m.userId, name: m.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const waitRows = db.select().from(eventWaitlist).where(eq(eventWaitlist.eventId, event.id)).all();
   const ended = Boolean(event.startsAt && (eventWindowEnd(event) ?? event.startsAt) < Date.now());
   const canSendPrepaid = Boolean(
@@ -131,11 +136,20 @@ export default async function WeeklyEventPage({
           amountCents: ledgerEntries.amountCents,
           status: ledgerEntries.status,
           fromName: users.name,
+          platformRole: users.platformRole,
         })
         .from(ledgerEntries)
         .innerJoin(users, eq(users.id, ledgerEntries.fromUserId))
         .where(eq(ledgerEntries.weeklyEventId, event.id))
         .all()
+        .map((row) => ({
+          id: row.id,
+          fromUserId: row.fromUserId,
+          amountCents: row.amountCents,
+          status: row.status,
+          fromName: row.fromName,
+          offline: row.platformRole === "offline",
+        }))
     : [];
   const showCost = event.status !== "polling" && event.status !== "cancelled" && (admin || Boolean(event.paymentRequestedAt));
   const myWaitlisted = waitRows.some((w) => w.userId === userId);
@@ -231,6 +245,8 @@ export default async function WeeklyEventPage({
           staff={staff}
           canVote={!suspended}
           canSeeDetails={!suspended}
+          memberCount={approvedMembers.length}
+          nonVoters={pollNonVoters}
         />
       )}
 
@@ -293,8 +309,12 @@ export default async function WeeklyEventPage({
               <PresenceVote
                 eventId={event.id}
                 myStatus={myRsvp?.rsvp.status}
-                goingCount={headcount}
+                goingCount={going.length}
                 notGoingCount={notGoing.length}
+                guestCount={approvedGuests.length}
+                pendingGuests={pendingGuests.length}
+                waitlistCount={waitRows.length}
+                noReplyCount={nonVoters.length}
                 canVote={canVote}
                 pendingCancel={Boolean(
                   userId && pendingCancel.some((r) => r.userId === userId),

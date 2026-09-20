@@ -2,7 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { CalendarPlus, Vote } from "lucide-react";
 import { auth } from "@/auth";
-import { getCommunityBySlug, isAdmin, isStaff, isSuspended } from "@/lib/access";
+import { getCommunityBySlug, isAdmin, isStaff, isSuspended, listApprovedMembers } from "@/lib/access";
 import { EventCard, SectionTitle } from "@/components/event-card";
 import { EventHomeCard } from "@/components/event-home-card";
 import { ContractHomeCard } from "@/components/contract-home-card";
@@ -14,6 +14,7 @@ import {
   clubPollVotes,
   clubPolls,
   eventGuests,
+  eventWaitlist,
   pollOptions,
   polls,
   rsvps,
@@ -58,6 +59,8 @@ export default async function CommunityOverviewPage({
   const now = Date.now();
   const people = db.select({ id: users.id, name: users.name }).from(users).all();
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? "Member";
+  const approvedMembers = listApprovedMembers(community.id);
+  const memberCount = approvedMembers.length;
 
   const events = db
     .select()
@@ -72,6 +75,7 @@ export default async function CommunityOverviewPage({
   }
   const rsvpRows = db.select().from(rsvps).all();
   const guestRows = db.select().from(eventGuests).all();
+  const waitlistRows = db.select().from(eventWaitlist).all();
   const slotRows = db.select().from(sessionSlots).all();
   const settledByEvent = new Map<string, boolean>();
   for (const e of events) {
@@ -183,6 +187,10 @@ export default async function CommunityOverviewPage({
           optionId: v.optionId,
           votedAt: v.createdAt,
         })),
+        nonVoters: approvedMembers
+          .filter((m) => !allVotes.some((v) => v.userId === m.userId))
+          .map((m) => ({ id: m.userId, name: m.name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
         history: listVoteHistory("event", poll.id),
         suggestions: db
           .select()
@@ -227,6 +235,10 @@ export default async function CommunityOverviewPage({
         optionId: v.optionId,
         votedAt: v.createdAt,
       })),
+      nonVoters: approvedMembers
+        .filter((m) => !allVotes.some((v) => v.userId === m.userId))
+        .map((m) => ({ id: m.userId, name: m.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
       history: listVoteHistory("club", poll.id),
       suggestions: db
         .select()
@@ -283,6 +295,19 @@ export default async function CommunityOverviewPage({
       }));
     const guestCount = guests.filter((g) => g.status === "approved").length;
     const pendingGuests = guests.filter((g) => g.status === "pending").length;
+    const waitlistCount = waitlistRows.filter((w) => w.eventId === e.id).length;
+    const answeredIds = new Set(
+      eventRsvps
+        .filter((r) => r.status === "going" || r.status === "not_going" || r.status === "waitlist")
+        .map((r) => r.userId),
+    );
+    for (const w of waitlistRows) {
+      if (w.eventId === e.id) answeredIds.add(w.userId);
+    }
+    const noReplyCount = Math.max(
+      0,
+      approvedMembers.filter((m) => !answeredIds.has(m.userId)).length,
+    );
     const closed = presenceVotingClosed(e, now);
     const headcount = goingByEvent.get(e.id) ?? 0;
     const settled = settledByEvent.get(e.id) ?? false;
@@ -355,6 +380,8 @@ export default async function CommunityOverviewPage({
           canClosePresence={canClosePresence}
           guestCount={guestCount}
           pendingGuests={pendingGuests}
+          waitlistCount={waitlistCount}
+          noReplyCount={noReplyCount}
           needsVote={Boolean(!myStatus)}
           collapseChoices
           soon={soon}
@@ -388,6 +415,8 @@ export default async function CommunityOverviewPage({
         canClosePresence={canClosePresence}
         guestCount={guestCount}
         pendingGuests={pendingGuests}
+        waitlistCount={waitlistCount}
+        noReplyCount={noReplyCount}
         needsVote={Boolean(userId && !myStatus)}
         collapseChoices={false}
         soon={soon}
@@ -459,6 +488,8 @@ export default async function CommunityOverviewPage({
                   closesAtDefault={msToLocalInput(poll.closesAt)}
                   options={poll.options}
                   voters={poll.voters}
+                  nonVoters={poll.nonVoters}
+                  memberCount={memberCount}
                   history={poll.history}
                   suggestions={poll.suggestions}
                   timezone={community.timezone}
@@ -493,6 +524,7 @@ export default async function CommunityOverviewPage({
                   location={s.location || community.location}
                   agreeCount={inCount}
                   declineCount={outCount}
+                  noReplyCount={Math.max(0, memberCount - inCount - outCount)}
                   minPlayers={s.minPlayers}
                   myIntent={mySignup?.intent}
                   canVote={Boolean(userId && !suspended)}

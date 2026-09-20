@@ -11,6 +11,7 @@ export function ContractAgreementVote({
   myIntent,
   agreeCount,
   declineCount,
+  noReplyCount = 0,
   canVote,
   compact = false,
 }: {
@@ -18,6 +19,7 @@ export function ContractAgreementVote({
   myIntent?: string | null;
   agreeCount: number;
   declineCount: number;
+  noReplyCount?: number;
   canVote: boolean;
   /** Home / card layout — choice cards like presence */
   compact?: boolean;
@@ -29,11 +31,15 @@ export function ContractAgreementVote({
   const [changing, setChanging] = useState(!myIntent);
   const needsReply = canVote && !myIntent;
   const canSubmit = canVote && (changing || !myIntent);
+  const tallyLine =
+    noReplyCount > 0
+      ? `${agreeCount} agreed · ${declineCount} out · ${noReplyCount} no reply`
+      : `${agreeCount} agreed · ${declineCount} out`;
 
   if (!canVote && !myIntent) {
     return (
       <p className={compact ? "text-xs text-ink/50" : "mt-4 text-sm text-ink/50"}>
-        {agreeCount} agreed · {declineCount} out
+        {tallyLine}
       </p>
     );
   }
@@ -97,6 +103,10 @@ export function ContractAgreementVote({
               detail={`${declineCount} out`}
             />
           </div>
+        )}
+
+        {myIntent && !changing && (
+          <p className={compact ? "mt-2 text-xs text-ink/55" : "mt-3 text-sm text-ink/55"}>{tallyLine}</p>
         )}
 
         {canSubmit && (

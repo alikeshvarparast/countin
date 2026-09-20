@@ -151,6 +151,7 @@ html.keyboard-open .chat-jump-latest {
 
 /* WhatsApp-like chat canvas */
 .chat-wa-bg {
+  overflow-anchor: none;
   background-color: #e8e0d5;
   background-image:
     radial-gradient(rgba(60, 134, 99, 0.06) 1.2px, transparent 1.2px),

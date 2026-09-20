@@ -7,6 +7,7 @@ import { LedgerTrackerNotice } from "@/components/ledger-tracker-notice";
 import { Card } from "@/components/ui";
 import { db } from "@/lib/db";
 import { ledgerEntries, seasonSessions, seasons, users, weeklyEvents } from "@/lib/db/schema";
+import { isOfflinePayer } from "@/lib/offline-payer";
 import { formatEventWhen, formatMoney } from "@/lib/utils";
 
 type LedgerRow = typeof ledgerEntries.$inferSelect;
@@ -56,17 +57,27 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
   const mine = rows.filter((r) => r.fromUserId === userId || r.toUserId === userId);
   const visible = admin ? rows : mine;
 
+  const personOf = (id: string) => people.find((p) => p.id === id);
   const owed = mine
-    .filter((r) => (r.status === "pending" || r.status === "claimed") && r.fromUserId === userId)
+    .filter((r) => {
+      if (r.fromUserId !== userId) return false;
+      if (r.status !== "pending" && r.status !== "claimed") return false;
+      return !isOfflinePayer(personOf(r.fromUserId));
+    })
     .reduce((s, r) => s + r.amountCents, 0);
   const dueToMe = mine
     .filter((r) => (r.status === "pending" || r.status === "claimed") && r.toUserId === userId)
     .reduce((s, r) => s + r.amountCents, 0);
-  const needsAction = mine.some(
-    (r) =>
-      (r.status === "pending" && r.fromUserId === userId) ||
-      (r.status === "claimed" && r.toUserId === userId),
-  );
+  const needsAction = mine.some((r) => {
+    if (r.status === "pending" && r.fromUserId === userId && !isOfflinePayer(personOf(r.fromUserId))) {
+      return true;
+    }
+    if (r.status === "claimed" && r.toUserId === userId) return true;
+    if (r.status === "pending" && r.toUserId === userId && isOfflinePayer(personOf(r.fromUserId))) {
+      return true;
+    }
+    return false;
+  });
 
   const groups = new Map<string, EventGroup>();
 
@@ -139,18 +150,27 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
   });
 
   function toViews(list: LedgerRow[]): LedgerEntryView[] {
-    return list.map((row) => ({
-      id: row.id,
-      fromName: nameOf(row.fromUserId),
-      toName: nameOf(row.toUserId),
-      amountCents: row.amountCents,
-      reason: row.reason,
-      status: row.status,
-      createdAt: row.createdAt,
-      canClaim: row.status === "pending" && row.fromUserId === userId,
-      canVerify: row.status === "claimed" && row.toUserId === userId,
-      verifyHint: row.status === "claimed" && row.toUserId === userId,
-    }));
+    return list.map((row) => {
+      const offline = isOfflinePayer(personOf(row.fromUserId));
+      const canClaim =
+        row.status === "pending" && row.fromUserId === userId && !offline;
+      const canVerify =
+        row.toUserId === userId &&
+        (row.status === "claimed" || (offline && row.status === "pending"));
+      return {
+        id: row.id,
+        fromName: nameOf(row.fromUserId),
+        toName: nameOf(row.toUserId),
+        amountCents: row.amountCents,
+        reason: row.reason,
+        status: row.status,
+        createdAt: row.createdAt,
+        offline,
+        canClaim,
+        canVerify,
+        verifyHint: canVerify,
+      };
+    });
   }
 
   return (
@@ -177,7 +197,8 @@ export default async function LedgerPage({ params }: { params: Promise<{ slug: s
       <Card>
         <h2 className="font-display text-lg">Entries by event</h2>
         <p className="text-sm text-ink/50">
-          After you send money, tap I have paid. The collector then verifies they received it.
+          After you send money, tap I have paid. The collector then verifies. Outside-app shares are
+          verified directly by the collector — no I have paid step.
         </p>
         <div className="mt-4 space-y-6">
           {grouped.length === 0 && <p className="text-cream/50">Nothing on the ledger yet.</p>}

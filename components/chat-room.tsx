@@ -33,8 +33,15 @@ function isNearBottom(node: HTMLElement, slop = 80) {
   return node.scrollHeight - node.scrollTop - node.clientHeight < slop;
 }
 
-function scrollChildToTop(scroller: HTMLElement, target: HTMLElement) {
-  scroller.scrollTop = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+function scrollToLatest(scroller: HTMLElement) {
+  // Prefer direct scrollTop — scrollIntoView can move the wrong ancestor.
+  scroller.scrollTop = scroller.scrollHeight;
+}
+
+function scrollToMessage(scroller: HTMLElement, target: HTMLElement, padding = 12) {
+  const top =
+    target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - padding;
+  scroller.scrollTop = Math.max(0, top);
 }
 
 function MessageMeta({
@@ -76,12 +83,17 @@ export function ChatRoom({
 }) {
   const router = useRouter();
   const scroller = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Freeze the open-target for this visit so a mark-read refresh doesn't jump mid-scroll.
   const [openUnreadId] = useState(firstUnreadId ?? null);
   const followLatest = useRef(!firstUnreadId);
   const didInitialPin = useRef(false);
-  const [atBottom, setAtBottom] = useState(!firstUnreadId);
+  const markedRead = useRef(false);
+  // Stay false until pin actually sticks — otherwise Jump-to-latest stays hidden at scrollTop 0.
+  const [atBottom, setAtBottom] = useState(false);
+  const [pinReady, setPinReady] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [menuOpenUp, setMenuOpenUp] = useState(false);
@@ -107,7 +119,6 @@ export function ChatRoom({
       const spaceBelow = scrollerNode.getBoundingClientRect().bottom - anchor.getBoundingClientRect().bottom;
       openUp = spaceBelow < 230;
     } else if (scrollerNode) {
-      // Long-press fallback: prefer upward near the bottom of the thread.
       openUp = scrollerNode.scrollHeight - scrollerNode.scrollTop - scrollerNode.clientHeight < 160;
     }
     setMenuOpenUp(openUp);
@@ -135,52 +146,199 @@ export function ChatRoom({
   function pinToLatest() {
     const node = scroller.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
+    scrollToLatest(node);
   }
 
   function pinOpenPosition() {
     const node = scroller.current;
-    if (!node) return;
-    const unread = unreadTarget();
-    if (unread) scrollChildToTop(node, unread);
-    else pinToLatest();
+    if (!node || node.clientHeight < 8) return false;
+    const unread = openUnreadId ? unreadTarget() : null;
+    if (unread) {
+      scrollToMessage(node, unread);
+      followLatest.current = false;
+      const bottom = isNearBottom(node);
+      setAtBottom(bottom);
+      // Unread pin sticks once the divider is in/near the viewport (not necessarily at bottom).
+      const rect = unread.getBoundingClientRect();
+      const scrollerRect = node.getBoundingClientRect();
+      const inView = rect.top >= scrollerRect.top - 8 && rect.top <= scrollerRect.bottom - 40;
+      return inView;
+    }
+    scrollToLatest(node);
+    // Double-rAF callers re-check; require a real near-bottom so an early layout
+    // (or Next scroll restoration) can't mark success while still at scrollTop 0.
+    const bottom = isNearBottom(node, 120);
+    followLatest.current = true;
+    setAtBottom(bottom);
+    return bottom;
+  }
+
+  function markReadOnce() {
+    if (markedRead.current) return;
+    markedRead.current = true;
+    void markChatRead(slug).then(() => {
+      void syncAppBadge();
+    });
   }
 
   useLayoutEffect(() => {
     const node = scroller.current;
     if (!node) return;
     let cancelled = false;
+    didInitialPin.current = false;
+    followLatest.current = !openUnreadId;
+    setPinReady(false);
+    let tries = 0;
+    let confirmed = false;
 
     const run = () => {
-      if (cancelled) return;
-      pinOpenPosition();
+      if (cancelled) return false;
+      const ok = pinOpenPosition();
+      tries += 1;
+      if (ok) {
+        // Re-verify on the next frame — Next/browser scroll restoration often
+        // resets scrollTop to 0 right after the first successful pin.
+        return true;
+      }
+      return false;
     };
 
-    run();
-    const frame = requestAnimationFrame(() => {
-      run();
+    const timers: number[] = [];
+    let confirmPending = false;
+
+    const finish = (ok: boolean) => {
+      if (confirmed) return;
+      confirmed = true;
+      // Re-pin immediately before reveal — scroll restoration often undoes earlier pins.
+      pinOpenPosition();
+      didInitialPin.current = true;
+      if (!openUnreadId) {
+        followLatest.current = true;
+        setAtBottom(Boolean(scroller.current && isNearBottom(scroller.current, 120)));
+      } else if (scroller.current) {
+        setAtBottom(isNearBottom(scroller.current));
+      }
+      setPinReady(true);
+      markReadOnce();
+      // After becoming visible, pin once more on the next frames.
       requestAnimationFrame(() => {
-        run();
         if (cancelled) return;
-        didInitialPin.current = true;
-        followLatest.current = !unreadTarget();
-        setAtBottom(isNearBottom(node));
-        void markChatRead(slug).then(() => {
-          void syncAppBadge();
+        if (!openUnreadId) pinToLatest();
+        else pinOpenPosition();
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          if (!openUnreadId) {
+            pinToLatest();
+            setAtBottom(Boolean(scroller.current && isNearBottom(scroller.current)));
+          } else {
+            pinOpenPosition();
+          }
         });
       });
+      void ok;
+    };
+
+    const confirmSoon = () => {
+      if (confirmPending || confirmed) return;
+      confirmPending = true;
+      timers.push(
+        window.setTimeout(() => {
+          confirmPending = false;
+          if (cancelled || confirmed) return;
+          const stillOk = openUnreadId
+            ? Boolean(unreadTarget()) && (() => {
+                pinOpenPosition();
+                const el = unreadTarget();
+                if (!el || !scroller.current) return false;
+                const rect = el.getBoundingClientRect();
+                const box = scroller.current.getBoundingClientRect();
+                return rect.top >= box.top - 8 && rect.top <= box.bottom - 40;
+              })()
+            : Boolean(scroller.current && isNearBottom(scroller.current, 120));
+          if (stillOk) {
+            finish(true);
+            return;
+          }
+          // Restoration (or flex layout) undid the pin — keep trying.
+          didInitialPin.current = false;
+          run();
+          if (tries < 12) confirmSoon();
+          else {
+            pinOpenPosition();
+            finish(false);
+          }
+        }, 50),
+      );
+    };
+
+    const schedule = (ms: number) => {
+      timers.push(
+        window.setTimeout(() => {
+          if (cancelled || confirmed) return;
+          if (run()) {
+            confirmSoon();
+            return;
+          }
+          if (tries < 12) schedule(50);
+          else {
+            pinOpenPosition();
+            finish(false);
+          }
+        }, ms),
+      );
+    };
+
+    // First paint often lands at scrollTop 0; pin in layout then reveal only after it sticks.
+    if (run()) confirmSoon();
+    schedule(0);
+    schedule(50);
+    schedule(100);
+    schedule(200);
+    // Hard deadline so the room never stays blank.
+    timers.push(
+      window.setTimeout(() => {
+        if (cancelled || confirmed) return;
+        pinOpenPosition();
+        finish(false);
+      }, 350),
+    );
+
+    const frame = requestAnimationFrame(() => {
+      if (run()) confirmSoon();
+      requestAnimationFrame(() => {
+        if (run()) confirmSoon();
+      });
     });
+
+    const ro = new ResizeObserver(() => {
+      if (cancelled) return;
+      if (!confirmed) {
+        if (run()) confirmSoon();
+        return;
+      }
+      if (followLatest.current) {
+        pinToLatest();
+        setAtBottom(Boolean(scroller.current && isNearBottom(scroller.current)));
+      }
+    });
+    ro.observe(node);
+    if (node.parentElement) ro.observe(node.parentElement);
+    // Content growth (seeded history, images) doesn't resize the scroller box.
+    const inner = node.firstElementChild;
+    if (inner) ro.observe(inner);
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      for (const id of timers) window.clearTimeout(id);
+      ro.disconnect();
     };
   }, [slug, openUnreadId]);
 
   useLayoutEffect(() => {
     if (!didInitialPin.current || !followLatest.current) return;
     pinToLatest();
-  }, [messages.length]);
+  }, [messages.length, messages[messages.length - 1]?.id]);
 
   useEffect(() => {
     const node = scroller.current;
@@ -235,9 +393,16 @@ export function ChatRoom({
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <div ref={scroller} className="chat-wa-bg h-0 min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3 sm:px-3">
+      <div
+        ref={scroller}
+        className={cn(
+          "chat-wa-bg h-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 sm:px-3",
+          !pinReady && "invisible",
+        )}
+      >
+        <div className="flex min-h-full flex-col justify-end space-y-1">
         {messages.length === 0 && (
-          <div className="flex min-h-full flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <div className="chat-wa-day rounded-lg px-3 py-1.5 text-xs font-medium">
               No messages yet — say hello
             </div>
@@ -257,7 +422,10 @@ export function ChatRoom({
             <div key={m.id} id={`msg-${m.id}`} className={cn(clustered ? "mt-0.5" : "mt-2")}>
               {showDay && (
                 <div className="mb-3 flex justify-center pt-1">
-                  <span className="chat-wa-day rounded-lg px-3 py-1 text-[12px] font-medium">
+                  <span
+                    className="chat-wa-day rounded-lg px-3 py-1 text-[12px] font-medium"
+                    suppressHydrationWarning
+                  >
                     {formatChatDayLabel(m.createdAt, timezone)}
                   </span>
                 </div>
@@ -531,8 +699,10 @@ export function ChatRoom({
             </div>
           );
         })}
+        <div ref={bottomRef} aria-hidden className="h-px w-full shrink-0" />
+        </div>
       </div>
-      {!atBottom && (
+      {pinReady && !atBottom && (
         <button
           type="button"
           className="chat-jump-latest absolute bottom-[5.5rem] right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-[#e9edef] bg-white text-[#54656f] shadow-[0_8px_24px_rgba(11,20,26,0.16)]"

@@ -13,6 +13,7 @@ export function ContractHomeCard({
   location,
   agreeCount,
   declineCount,
+  noReplyCount = 0,
   minPlayers,
   myIntent,
   canVote,
@@ -23,6 +24,7 @@ export function ContractHomeCard({
   location?: string | null;
   agreeCount: number;
   declineCount: number;
+  noReplyCount?: number;
   minPlayers?: number | null;
   myIntent?: string | null;
   canVote: boolean;
@@ -56,6 +58,7 @@ export function ContractHomeCard({
             {location ? `${location} · ` : ""}
             {agreeCount} agreed
             {typeof minPlayers === "number" ? ` · min ${minPlayers}` : ""}
+            {noReplyCount > 0 ? ` · ${noReplyCount} no reply` : ""}
             {` · ${statusLine}`}
           </p>
         </div>
@@ -68,6 +71,7 @@ export function ContractHomeCard({
           myIntent={myIntent}
           agreeCount={agreeCount}
           declineCount={declineCount}
+          noReplyCount={noReplyCount}
           canVote={canVote}
           compact
         />

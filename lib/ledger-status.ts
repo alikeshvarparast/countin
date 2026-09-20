@@ -1,6 +1,7 @@
 import { and, eq, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { ledgerEntries } from "@/lib/db/schema";
+import { ledgerEntries, users } from "@/lib/db/schema";
+import { isOfflinePayer } from "@/lib/offline-payer";
 
 export function countLedgerActions(communityId: string, userId: string) {
   const rows = db
@@ -8,11 +9,24 @@ export function countLedgerActions(communityId: string, userId: string) {
     .from(ledgerEntries)
     .where(eq(ledgerEntries.communityId, communityId))
     .all();
-  return rows.filter(
-    (r) =>
-      (r.status === "pending" && r.fromUserId === userId) ||
-      (r.status === "claimed" && r.toUserId === userId),
-  ).length;
+  const payerIds = [...new Set(rows.map((r) => r.fromUserId))];
+  const offlineIds = new Set(
+    payerIds.filter((id) => {
+      const payer = db.select().from(users).where(eq(users.id, id)).get();
+      return isOfflinePayer(payer);
+    }),
+  );
+  return rows.filter((r) => {
+    if (r.status === "pending" && r.fromUserId === userId && !offlineIds.has(r.fromUserId)) {
+      return true;
+    }
+    if (r.status === "claimed" && r.toUserId === userId) return true;
+    // Outside-app shares never self-claim — collector verifies from pending.
+    if (r.status === "pending" && r.toUserId === userId && offlineIds.has(r.fromUserId)) {
+      return true;
+    }
+    return false;
+  }).length;
 }
 
 export function ledgerStatusLabel(status: string) {

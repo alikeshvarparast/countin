@@ -9,11 +9,13 @@ import {
   seasonSessions,
   seasons,
   sessionSlots,
+  users,
   weeklyEvents,
 } from "@/lib/db/schema";
 import { notify, notifyMany } from "@/lib/notify";
 import { listAdmins, listApprovedMembers } from "@/lib/access";
 import { now } from "@/lib/id";
+import { isOfflinePayer } from "@/lib/offline-payer";
 import { msToZonedDateAndTime, zonedDateTimeToUtcMs } from "@/lib/timezone";
 import {
   eventWindowEnd,
@@ -281,6 +283,9 @@ export async function sendUnpaidShareReminders() {
   const bySeason = new Map<string, typeof pending>();
 
   for (const entry of pending) {
+    const payer = db.select().from(users).where(eq(users.id, entry.fromUserId)).get();
+    if (isOfflinePayer(payer)) continue;
+
     const community = db.select().from(communities).where(eq(communities.id, entry.communityId)).get();
     if (!community) continue;
 

@@ -10,12 +10,15 @@ import { now } from "@/lib/id";
 import { notify } from "@/lib/notify";
 import { formatMoney } from "@/lib/utils";
 import { eventLedgerAllSettled } from "@/lib/ledger-status";
+import { isOfflinePayer } from "@/lib/offline-payer";
 
 export async function claimLedgerPayment(entryId: string) {
   const user = await requireUser();
   const entry = db.select().from(ledgerEntries).where(eq(ledgerEntries.id, entryId)).get();
   if (!entry) return { error: "Entry not found." };
   if (entry.fromUserId !== user.id) return { error: "Only the payer can mark this paid." };
+  const payer = db.select().from(users).where(eq(users.id, entry.fromUserId)).get();
+  if (isOfflinePayer(payer)) return { error: "Outside shares are verified by the receiver." };
   if (entry.status !== "pending") return { error: "This payment is not waiting on you." };
 
   const t = now();
@@ -55,7 +58,13 @@ export async function verifyLedgerPayment(entryId: string) {
   const entry = db.select().from(ledgerEntries).where(eq(ledgerEntries.id, entryId)).get();
   if (!entry) return { error: "Entry not found." };
   if (entry.toUserId !== user.id) return { error: "Only the collector can verify this payment." };
-  if (entry.status !== "claimed") {
+  const payer = db.select().from(users).where(eq(users.id, entry.fromUserId)).get();
+  const offline = isOfflinePayer(payer);
+  if (offline) {
+    if (entry.status !== "pending" && entry.status !== "claimed") {
+      return { error: "This outside share is already settled." };
+    }
+  } else if (entry.status !== "claimed") {
     return { error: "Wait until the payer marks I have paid." };
   }
 
@@ -66,7 +75,6 @@ export async function verifyLedgerPayment(entryId: string) {
 
   const community = db.select().from(communities).where(eq(communities.id, entry.communityId)).get();
   if (!community) return { error: "Community not found." };
-  const payer = db.select().from(users).where(eq(users.id, entry.fromUserId)).get();
 
   audit({
     communityId: community.id,
@@ -74,16 +82,19 @@ export async function verifyLedgerPayment(entryId: string) {
     action: "ledger.verify",
     entityType: "ledger_entry",
     entityId: entry.id,
+    meta: offline ? { offline: true } : undefined,
   });
 
-  await notify({
-    userId: entry.fromUserId,
-    communityId: community.id,
-    type: "payment_settled",
-    title: `Payment verified · ${community.name}`,
-    body: `Your ${formatMoney(entry.amountCents, community.currency)} payment was verified.`,
-    href: `/app/c/${community.slug}/ledger`,
-  });
+  if (!offline) {
+    await notify({
+      userId: entry.fromUserId,
+      communityId: community.id,
+      type: "payment_settled",
+      title: `Payment verified · ${community.name}`,
+      body: `Your ${formatMoney(entry.amountCents, community.currency)} payment was verified.`,
+      href: `/app/c/${community.slug}/ledger`,
+    });
+  }
 
   if (entry.weeklyEventId && eventLedgerAllSettled(entry.weeklyEventId)) {
     const weekly = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, entry.weeklyEventId)).get();
@@ -104,7 +115,6 @@ export async function verifyLedgerPayment(entryId: string) {
   revalidatePath(`/app/c/${community.slug}`);
   if (entry.weeklyEventId) revalidatePath(`/app/c/${community.slug}/events/${entry.weeklyEventId}`);
   if (entry.seasonId) revalidatePath(`/app/c/${community.slug}/seasons/${entry.seasonId}`);
-  void payer;
   return { ok: true };
 }
 

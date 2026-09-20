@@ -6,11 +6,47 @@ import { setRsvp } from "@/lib/actions/weekly";
 import { SubmitButton } from "@/components/submit-button";
 import { VoteNeedsFrame, VoteOptionButton } from "@/components/vote-choice";
 
+function presenceTallyLine({
+  goingCount,
+  notGoingCount,
+  guestCount,
+  pendingGuests,
+  waitlistCount,
+  noReplyCount,
+}: {
+  goingCount: number;
+  notGoingCount: number;
+  guestCount: number;
+  pendingGuests: number;
+  waitlistCount: number;
+  noReplyCount: number;
+}) {
+  const parts = [
+    `${goingCount} going`,
+    `${notGoingCount} out`,
+    `${guestCount} guest${guestCount === 1 ? "" : "s"}`,
+  ];
+  if (pendingGuests > 0) {
+    parts.push(
+      `${pendingGuests} waiting for approve guest${pendingGuests === 1 ? "" : "s"}`,
+    );
+  }
+  if (waitlistCount > 0) {
+    parts.push(`${waitlistCount} waitlist`);
+  }
+  parts.push(`${noReplyCount} no reply`);
+  return parts.join(" · ");
+}
+
 export function PresenceVote({
   eventId,
   myStatus,
   goingCount,
   notGoingCount,
+  guestCount = 0,
+  pendingGuests = 0,
+  waitlistCount = 0,
+  noReplyCount = 0,
   canVote,
   onDone,
   forceEdit,
@@ -23,6 +59,10 @@ export function PresenceVote({
   myStatus?: string | null;
   goingCount: number;
   notGoingCount: number;
+  guestCount?: number;
+  pendingGuests?: number;
+  waitlistCount?: number;
+  noReplyCount?: number;
   canVote: boolean;
   onDone?: () => void;
   forceEdit?: boolean;
@@ -41,14 +81,19 @@ export function PresenceVote({
   const canSubmit = canVote && (changing || (!myStatus && !collapseChoices));
   const needsReply = canVote && !myStatus && !collapseChoices;
   const showChoices = canSubmit;
+  const showReport = Boolean(myStatus) && !changing;
   const showChangeLink = canVote && !changing && (Boolean(myStatus) || Boolean(collapseChoices));
+  const tally = presenceTallyLine({
+    goingCount,
+    notGoingCount,
+    guestCount,
+    pendingGuests,
+    waitlistCount,
+    noReplyCount,
+  });
 
   if (!canVote && !myStatus) {
-    return (
-      <p className="text-xs text-ink/50">
-        Going {goingCount} · Not going {notGoingCount}
-      </p>
-    );
+    return <p className="text-xs text-ink/50">{tally}</p>;
   }
 
   return (
@@ -68,6 +113,7 @@ export function PresenceVote({
             Leave request pending admin approve or decline.
           </p>
         )}
+        {showReport && <p className="text-xs text-ink/55">{tally}</p>}
         {showChoices && (
           <div className="grid grid-cols-2 gap-1.5">
             <VoteOptionButton
@@ -120,7 +166,7 @@ export function PresenceVote({
           </form>
         )}
         {showChangeLink && (
-          <button type="button" className="text-sm text-primary" onClick={() => setChanging(true)}>
+          <button type="button" className="mt-2 text-sm text-primary" onClick={() => setChanging(true)}>
             Change presence
           </button>
         )}

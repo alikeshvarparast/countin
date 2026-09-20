@@ -46,6 +46,8 @@ export default async function SeasonDetailPage({
     .all();
   const inRows = signupRows.filter((r) => r.signup.intent !== "decline");
   const outRows = signupRows.filter((r) => r.signup.intent === "decline");
+  const memberCount = listApprovedMembers(community.id).length;
+  const noReplyCount = Math.max(0, memberCount - inRows.length - outRows.length);
   const mySignup = userId ? signupRows.find((r) => r.signup.userId === userId) : undefined;
   const myContract = userId ? contractRows.some((r) => r.contract.userId === userId) : false;
   const occasionalRows = listApprovedMembers(community.id).filter(
@@ -136,6 +138,7 @@ export default async function SeasonDetailPage({
               myIntent={mySignup?.signup.intent}
               agreeCount={inRows.length}
               declineCount={outRows.length}
+              noReplyCount={noReplyCount}
               canVote={Boolean(userId)}
             />
           )}
@@ -160,6 +163,11 @@ export default async function SeasonDetailPage({
               </ul>
             </div>
           </div>
+          {noReplyCount > 0 && (
+            <p className="mt-3 text-sm text-ink/55">
+              {noReplyCount} member{noReplyCount === 1 ? " has" : "s have"} not replied yet.
+            </p>
+          )}
           {admin && (
             <form
               className="mt-5 border-t border-line pt-4"

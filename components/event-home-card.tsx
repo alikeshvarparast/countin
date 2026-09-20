@@ -31,6 +31,8 @@ export function EventHomeCard({
   lockOptions,
   guestCount,
   pendingGuests = 0,
+  waitlistCount = 0,
+  noReplyCount = 0,
   needsVote,
   collapseChoices,
   soon,
@@ -58,6 +60,8 @@ export function EventHomeCard({
   lockOptions?: { id: string; label: string }[];
   guestCount: number;
   pendingGuests?: number;
+  waitlistCount?: number;
+  noReplyCount?: number;
   needsVote?: boolean;
   collapseChoices?: boolean;
   /** Starts within 24 hours — distinct Home treatment. */
@@ -147,8 +151,12 @@ export function EventHomeCard({
           <PresenceVote
             eventId={eventId}
             myStatus={myStatus}
-            goingCount={headcount}
+            goingCount={goingCount}
             notGoingCount={notGoingCount}
+            guestCount={guestCount}
+            pendingGuests={pendingGuests}
+            waitlistCount={waitlistCount}
+            noReplyCount={noReplyCount}
             canVote={canVote}
             collapseChoices={collapseChoices}
           />

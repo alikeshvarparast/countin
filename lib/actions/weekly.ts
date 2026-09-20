@@ -30,6 +30,7 @@ import { createId, now } from "@/lib/id";
 import { goingHeadcount, notifyCollector, syncWeeklyShares, attendanceShares, splitCents } from "@/lib/ledger";
 import { currentEventVotes, logVote } from "@/lib/votes";
 import { notify, notifyMany } from "@/lib/notify";
+import { createOfflinePayer } from "@/lib/offline-payer";
 import { eventStartFromParts, formatMoney, localInputToMs, parseDurationMinutes, sessionSlotIsGoing } from "@/lib/utils";
 
 function goingCount(eventId: string) {
@@ -886,6 +887,10 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
     .getAll("attendeeId")
     .map((v) => String(v))
     .filter(Boolean);
+  const offlineNames = formData
+    .getAll("offlineName")
+    .map((v) => String(v).trim())
+    .filter((name) => name.length > 0);
 
   const event = db.select().from(weeklyEvents).where(eq(weeklyEvents.id, eventId)).get();
   if (!event) return { error: "Event not found." };
@@ -905,13 +910,20 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
   }
 
   let payerIds = attendeeIds.filter((id) => memberIds.has(id) && id !== collectorUserId);
-  if (payerIds.length === 0) {
+  if (payerIds.length === 0 && offlineNames.length === 0) {
     const { going } = attendanceShares(eventId);
     payerIds = going.map((g) => g.userId).filter((id) => id !== collectorUserId);
   }
-  if (payerIds.length === 0) return { error: "Pick who should pay a share." };
 
-  // Ensure RSVPs for manually added attendees
+  const offlineIds: string[] = [];
+  for (const name of offlineNames) {
+    offlineIds.push(createOfflinePayer(name));
+  }
+
+  const allPayerIds = [...payerIds, ...offlineIds];
+  if (allPayerIds.length === 0) return { error: "Pick who should pay a share." };
+
+  // Ensure RSVPs for manually added club members (not offline outside people).
   const t = now();
   for (const userId of payerIds) {
     const existing = db
@@ -929,10 +941,11 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
   }
 
   const cents = Math.round(amount * 100);
-  const shares = splitCents(cents, payerIds.length);
+  const shares = splitCents(cents, allPayerIds.length);
   const community = db.select().from(communities).where(eq(communities.id, event.communityId)).get();
   if (!community) return { error: "Community not found." };
   const collectorLabel = collector.name;
+  const offlineSet = new Set(offlineIds);
 
   db.update(weeklyEvents)
     .set({
@@ -945,13 +958,14 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
     .where(eq(weeklyEvents.id, eventId))
     .run();
 
-  for (let i = 0; i < payerIds.length; i += 1) {
+  for (let i = 0; i < allPayerIds.length; i += 1) {
     const amountCents = shares[i];
+    const payerId = allPayerIds[i];
     db.insert(ledgerEntries)
       .values({
         id: createId(),
         communityId: community.id,
-        fromUserId: payerIds[i],
+        fromUserId: payerId,
         toUserId: collectorUserId,
         amountCents,
         reason: "weekly_share",
@@ -960,14 +974,17 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
         createdAt: t,
       })
       .run();
-    await notify({
-      userId: payerIds[i],
-      communityId: community.id,
-      type: "cost_posted",
-      title: `Payment due · ${event.title}`,
-      body: `Pay ${formatMoney(amountCents, community.currency)} to ${collectorLabel}. ${paymentInfo}`,
-      href: `/app/c/${community.slug}/ledger`,
-    });
+    // Outside people are share-only — no app notifications.
+    if (!offlineSet.has(payerId)) {
+      await notify({
+        userId: payerId,
+        communityId: community.id,
+        type: "cost_posted",
+        title: `Payment due · ${event.title}`,
+        body: `Pay ${formatMoney(amountCents, community.currency)} to ${collectorLabel}. ${paymentInfo}`,
+        href: `/app/c/${community.slug}/ledger`,
+      });
+    }
   }
 
   audit({
@@ -976,7 +993,7 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
     action: "weekly.payment_request",
     entityType: "weekly_event",
     entityId: event.id,
-    meta: { cents, attendees: payerIds.length },
+    meta: { cents, attendees: allPayerIds.length, offline: offlineIds.length },
   });
 
   await notify({
@@ -984,8 +1001,11 @@ export async function sendWeeklyPaymentRequest(formData: FormData) {
     communityId: community.id,
     type: "ledger_approval",
     title: `Payments incoming · ${event.title}`,
-    body: `${payerIds.length} players were asked to pay. Verify each when you receive money.`,
-    href: `/app/c/${community.slug}/ledger`,
+    body:
+      offlineIds.length > 0
+        ? `${payerIds.length} members were asked to pay · ${offlineIds.length} outside share${offlineIds.length === 1 ? "" : "s"} for you to verify.`
+        : `${payerIds.length} players were asked to pay. Verify each when you receive money.`,
+    href: `/app/c/${community.slug}/events/${event.id}`,
   });
 
   revalidatePath(`/app/c/${community.slug}/events/${event.id}`);
