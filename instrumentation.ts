@@ -3,7 +3,7 @@ export async function register() {
   const { ensureTelegramWebhook } = await import("./lib/telegram");
   await ensureTelegramWebhook().catch(() => undefined);
 
-  // One-shot demo directory seed (skips if data/.demo-directory-v13 exists).
+  // One-shot demo directory seed (skips if data/.demo-directory-v14 exists).
   void import("./lib/seed-demo-directory")
     .then(({ seedDemoDirectory }) => seedDemoDirectory())
     .then((result) => {

@@ -25,7 +25,13 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v13";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v14";
+
+const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
+
+function isDemoAccount(email: string | null | undefined) {
+  return Boolean(email && DEMO_EMAIL_RE.test(email));
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -135,8 +141,12 @@ async function attachUserAvatar(userId: string, name: string, color: string) {
 }
 
 async function ensureUserPool(passwordHash: string, needed: number) {
-  const existing = db.select().from(users).all().filter((u) => u.platformRole !== "offline" && u.email !== "owner");
-  const pool = [...existing];
+  // Only demo personas — never pull real live accounts into the member pool.
+  const pool = db
+    .select()
+    .from(users)
+    .all()
+    .filter((u) => isDemoAccount(u.email) && u.platformRole !== "offline");
   let n = 0;
   while (pool.length < needed) {
     const first = FIRST[n % FIRST.length];
@@ -144,7 +154,7 @@ async function ensureUserPool(passwordHash: string, needed: number) {
     const email = `demo${String(n).padStart(3, "0")}@club.com`;
     const found = db.select().from(users).where(eq(users.email, email)).get();
     if (found) {
-      pool.push(found);
+      if (!pool.some((u) => u.id === found.id)) pool.push(found);
     } else {
       const row = {
         id: createId(),
@@ -157,11 +167,22 @@ async function ensureUserPool(passwordHash: string, needed: number) {
         createdAt: now() - n * HOUR,
       };
       db.insert(users).values(row).run();
-      pool.push(row as typeof existing[number]);
+      pool.push(row as (typeof pool)[number]);
     }
     n += 1;
   }
   return pool;
+}
+
+/** Drop real-user memberships that earlier seeds attached to demo clubs. */
+function pruneNonDemoMembers(communityId: string, keepUserIds: Set<string>) {
+  const rows = db.select().from(memberships).where(eq(memberships.communityId, communityId)).all();
+  for (const row of rows) {
+    if (keepUserIds.has(row.userId)) continue;
+    const member = db.select().from(users).where(eq(users.id, row.userId)).get();
+    if (member && isDemoAccount(member.email)) continue;
+    db.delete(memberships).where(eq(memberships.id, row.id)).run();
+  }
 }
 
 function ensureMembership(communityId: string, userId: string, role: string, t: number) {
@@ -586,6 +607,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
             : "member";
       ensureMembership(community.id, userId, finalRole, t);
     }
+    pruneNonDemoMembers(community.id, ids);
 
     if (spec.withPic) {
       try {
