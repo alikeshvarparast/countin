@@ -2,7 +2,7 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v15 — delete (or pass force) to re-run.
+ * Marker: data/.demo-directory-v16 — delete (or pass force) to re-run.
  */
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -25,7 +25,7 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v15";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v16";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
@@ -50,21 +50,13 @@ const CLUB_PHOTOS = [
   pitchPhoto("photo-1550591822-385011169f30"), // packed stands / field
 ] as const;
 
-/** randomuser.me portraits — real people for a subset of demo members. */
-const PERSON_PHOTOS = [
-  "https://randomuser.me/api/portraits/men/32.jpg",
-  "https://randomuser.me/api/portraits/women/44.jpg",
-  "https://randomuser.me/api/portraits/men/11.jpg",
-  "https://randomuser.me/api/portraits/women/68.jpg",
-  "https://randomuser.me/api/portraits/men/75.jpg",
-  "https://randomuser.me/api/portraits/women/21.jpg",
-  "https://randomuser.me/api/portraits/men/46.jpg",
-  "https://randomuser.me/api/portraits/women/90.jpg",
-  "https://randomuser.me/api/portraits/men/22.jpg",
-  "https://randomuser.me/api/portraits/women/33.jpg",
-  "https://randomuser.me/api/portraits/men/85.jpg",
-  "https://randomuser.me/api/portraits/women/12.jpg",
-] as const;
+/** 100 unique portraits from mixed sources so faces don't all look the same. */
+const PERSON_PHOTOS: string[] = [
+  ...Array.from({ length: 40 }, (_, i) => `https://randomuser.me/api/portraits/men/${i}.jpg`),
+  ...Array.from({ length: 40 }, (_, i) => `https://randomuser.me/api/portraits/women/${i}.jpg`),
+  // pravatar / UI Faces — different style from randomuser
+  ...Array.from({ length: 20 }, (_, i) => `https://i.pravatar.cc/256?img=${i + 1}`),
+];
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -559,17 +551,26 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     alex = db.select().from(users).where(eq(users.id, id)).get()!;
   }
 
-  const pool = await ensureUserPool(passwordHash, 90);
+  const pool = await ensureUserPool(passwordHash, 100);
   // Prefer alex first in pool
-  const people = [alex, ...pool.filter((u) => u.id !== alex.id)];
+  const people = [alex, ...pool.filter((u) => u.id !== alex.id)].slice(0, 100);
 
-  // Real portraits for a handful of members (directory face stacks)
-  for (let i = 0; i < PERSON_PHOTOS.length && i < people.length; i++) {
-    try {
-      await attachPhoto("users", people[i].id, PERSON_PHOTOS[i]);
-    } catch (err) {
-      console.warn("user photo skip", people[i].email, err);
-    }
+  // One unique real portrait per person (100 photos → 100 people)
+  const photoTargets = Math.min(PERSON_PHOTOS.length, people.length);
+  console.log(`assigning ${photoTargets} unique portraits…`);
+  const concurrency = 8;
+  for (let i = 0; i < photoTargets; i += concurrency) {
+    const batch = people.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map(async (person, j) => {
+        const url = PERSON_PHOTOS[i + j];
+        try {
+          await attachPhoto("users", person.id, url);
+        } catch (err) {
+          console.warn("user photo skip", person.email, err);
+        }
+      }),
+    );
   }
 
   const created: { name: string; slug: string; members: number; showcase?: boolean }[] = [];
