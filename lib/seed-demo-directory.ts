@@ -2,7 +2,7 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v13 — delete to re-run on next boot.
+ * Marker: data/.demo-directory-v15 — delete (or pass force) to re-run.
  */
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -25,13 +25,46 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v14";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v15";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
 function isDemoAccount(email: string | null | undefined) {
   return Boolean(email && DEMO_EMAIL_RE.test(email));
 }
+
+/** Unsplash pitch/game crops (≤640px so they stay under the 2MB upload cap). */
+function pitchPhoto(id: string) {
+  return `https://images.unsplash.com/${id}?auto=format&fit=crop&w=640&h=640&q=80`;
+}
+
+/** Curated soccer pitch / match photos — not every club gets one. */
+const CLUB_PHOTOS = [
+  pitchPhoto("photo-1574629810360-7efbbe195018"), // ball on grass
+  pitchPhoto("photo-1431324155629-1a6deb1dec8d"), // stadium pitch
+  pitchPhoto("photo-1551958219-acbc608c6377"), // players training
+  pitchPhoto("photo-1529900748604-07564a03e7a6"), // empty pitch
+  pitchPhoto("photo-1517466787929-bc90951d0974"), // night floodlights
+  pitchPhoto("photo-1575361204480-aadea25e6e68"), // match action
+  pitchPhoto("photo-1489944440615-453fc2b6a9a9"), // goalmouth
+  pitchPhoto("photo-1550591822-385011169f30"), // packed stands / field
+] as const;
+
+/** randomuser.me portraits — real people for a subset of demo members. */
+const PERSON_PHOTOS = [
+  "https://randomuser.me/api/portraits/men/32.jpg",
+  "https://randomuser.me/api/portraits/women/44.jpg",
+  "https://randomuser.me/api/portraits/men/11.jpg",
+  "https://randomuser.me/api/portraits/women/68.jpg",
+  "https://randomuser.me/api/portraits/men/75.jpg",
+  "https://randomuser.me/api/portraits/women/21.jpg",
+  "https://randomuser.me/api/portraits/men/46.jpg",
+  "https://randomuser.me/api/portraits/women/90.jpg",
+  "https://randomuser.me/api/portraits/men/22.jpg",
+  "https://randomuser.me/api/portraits/women/33.jpg",
+  "https://randomuser.me/api/portraits/men/85.jpg",
+  "https://randomuser.me/api/portraits/women/12.jpg",
+] as const;
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -56,20 +89,20 @@ const LAST = [
 ];
 
 /** 13 public demo clubs — sizes span ~6 to 79. Last entry is the rich showcase. */
-const CLUBS: { name: string; members: number; color: string; withPic?: boolean }[] = [
-  { name: "Riverside Kickers", members: 6, color: "2f6b4f", withPic: true },
-  { name: "Harbor Night FC", members: 9, color: "1d4e89", withPic: true },
-  { name: "Lakeview United", members: 16, color: "8b3a3a", withPic: true },
-  { name: "Oak Street 8v8", members: 22, color: "5b4b8a", withPic: true },
-  { name: "Maple Grove FC", members: 31, color: "b45309", withPic: true },
-  { name: "Parkdale Pickups", members: 44, color: "0f766e", withPic: true },
-  { name: "Southbank Strikers", members: 50, color: "7c3aed" },
-  { name: "Dockside Dynamo", members: 57, color: "be123c", withPic: true },
-  { name: "Riverbend Rovers", members: 69, color: "365314" },
-  { name: "Crown Point FC", members: 66, color: "9a3412" },
-  { name: "Station Yard FC", members: 73, color: "1e3a5f", withPic: true },
-  { name: "Beacon Hill Ball", members: 76, color: "4c1d95" },
-  { name: "Showcase United", members: 79, color: "14532d", withPic: true },
+const CLUBS: { name: string; members: number; photo?: string }[] = [
+  { name: "Riverside Kickers", members: 6, photo: CLUB_PHOTOS[0] },
+  { name: "Harbor Night FC", members: 9, photo: CLUB_PHOTOS[4] },
+  { name: "Lakeview United", members: 16, photo: CLUB_PHOTOS[1] },
+  { name: "Oak Street 8v8", members: 22, photo: CLUB_PHOTOS[2] },
+  { name: "Maple Grove FC", members: 31 },
+  { name: "Parkdale Pickups", members: 44, photo: CLUB_PHOTOS[5] },
+  { name: "Southbank Strikers", members: 50 },
+  { name: "Dockside Dynamo", members: 57, photo: CLUB_PHOTOS[6] },
+  { name: "Riverbend Rovers", members: 69 },
+  { name: "Crown Point FC", members: 66 },
+  { name: "Station Yard FC", members: 73, photo: CLUB_PHOTOS[3] },
+  { name: "Beacon Hill Ball", members: 76 },
+  { name: "Showcase United", members: 79, photo: CLUB_PHOTOS[7] },
 ];
 
 const LOCATIONS = [
@@ -113,29 +146,28 @@ function slugify(name: string) {
 }
 
 async function fetchBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url, { headers: { "User-Agent": "CountIn-Seed/1.0" } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": "CountIn-Seed/1.0", Accept: "image/*" },
+    redirect: "follow",
+  });
   if (!res.ok) throw new Error(`fetch ${url} → ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
 
-async function attachClubAvatar(communityId: string, name: string, color: string) {
-  const label = encodeURIComponent(name.replace(/ FC| United| Ball$/g, "").split(" ").slice(0, 2).join(" "));
-  const url = `https://ui-avatars.com/api/?name=${label}&background=${color}&color=fff&size=256&bold=true&format=png`;
+async function attachPhoto(
+  folder: "communities" | "users",
+  id: string,
+  url: string,
+) {
   const buf = await fetchBuffer(url);
-  const imageUrl = saveImageBuffer(buf, "communities", communityId, "image/png", "club.png");
-  if (imageUrl) {
-    db.update(communities).set({ imageUrl }).where(eq(communities.id, communityId)).run();
-  }
-  return imageUrl;
-}
-
-async function attachUserAvatar(userId: string, name: string, color: string) {
-  const label = encodeURIComponent(name.split(" ").slice(0, 2).join(" "));
-  const url = `https://ui-avatars.com/api/?name=${label}&background=${color}&color=fff&size=128&bold=true&format=png`;
-  const buf = await fetchBuffer(url);
-  const imageUrl = saveImageBuffer(buf, "users", userId, "image/png", "user.png");
-  if (imageUrl) {
-    db.update(users).set({ imageUrl }).where(eq(users.id, userId)).run();
+  const mime = url.includes(".png") ? "image/png" : "image/jpeg";
+  const filename = url.includes(".png") ? "photo.png" : "photo.jpg";
+  const imageUrl = saveImageBuffer(buf, folder, id, mime, filename);
+  if (!imageUrl) return null;
+  if (folder === "communities") {
+    db.update(communities).set({ imageUrl }).where(eq(communities.id, id)).run();
+  } else {
+    db.update(users).set({ imageUrl }).where(eq(users.id, id)).run();
   }
   return imageUrl;
 }
@@ -531,14 +563,12 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
   // Prefer alex first in pool
   const people = [alex, ...pool.filter((u) => u.id !== alex.id)];
 
-  // Profile pics for a handful of members (directory face stacks)
-  for (let i = 0; i < 18 && i < people.length; i++) {
-    if (people[i].imageUrl) continue;
-    const colors = ["2f6b4f", "1d4e89", "8b3a3a", "5b4b8a", "b45309", "0f766e"];
+  // Real portraits for a handful of members (directory face stacks)
+  for (let i = 0; i < PERSON_PHOTOS.length && i < people.length; i++) {
     try {
-      await attachUserAvatar(people[i].id, people[i].name, colors[i % colors.length]);
+      await attachPhoto("users", people[i].id, PERSON_PHOTOS[i]);
     } catch (err) {
-      console.warn("user avatar skip", people[i].email, err);
+      console.warn("user photo skip", people[i].email, err);
     }
   }
 
@@ -609,12 +639,15 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     }
     pruneNonDemoMembers(community.id, ids);
 
-    if (spec.withPic) {
+    if (spec.photo) {
       try {
-        await attachClubAvatar(community.id, name, spec.color);
+        await attachPhoto("communities", community.id, spec.photo);
       } catch (err) {
-        console.warn("club avatar skip", slug, err);
+        console.warn("club photo skip", slug, err);
       }
+    } else if (community.imageUrl) {
+      // Drop generated letter-avatars from earlier seeds when this club has no real photo.
+      db.update(communities).set({ imageUrl: null }).where(eq(communities.id, community.id)).run();
     }
 
     if (showcase) {
