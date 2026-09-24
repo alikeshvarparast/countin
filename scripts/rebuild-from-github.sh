@@ -58,5 +58,13 @@ docker compose build
 log "recreating container"
 docker compose up -d --force-recreate
 
+# Wait for app boot (instrumentation also seeds once; this is a fallback).
+sleep 8
+if docker compose exec -T countin test -f /app/data/.demo-directory-v13 2>/dev/null; then
+  log "demo directory already seeded"
+else
+  log "demo directory will seed on first Node boot via instrumentation"
+fi
+
 printf '%s\n' "$head_sha" > "$DEPLOYED_SHA_FILE"
 log "done at $(git rev-parse --short HEAD)"
