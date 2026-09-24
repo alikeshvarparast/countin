@@ -10,6 +10,23 @@ import { Input } from "@/components/ui";
 import { db } from "@/lib/db";
 import { memberships, users } from "@/lib/db/schema";
 
+/** Stable shuffle so each club card always shows the same 5 “random” members. */
+function pickRandomMembers<T>(items: T[], count: number, seed: string): T[] {
+  if (items.length <= count) return [...items];
+  const copy = [...items];
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  for (let i = copy.length - 1; i > 0; i--) {
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    const j = Math.abs(h) % (i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, count);
+}
+
 export default async function HomePage({
   searchParams,
 }: {
@@ -37,13 +54,13 @@ export default async function HomePage({
       .all();
     const approved = rows.filter((r) => r.membership.status === "approved");
     memberCounts.set(club.id, approved.length);
-    // Only members with real portraits appear in the card face stack (1 vs several).
+    // Always show 5 members: photo when they have one, otherwise initials.
     faces.set(
       club.id,
-      approved
-        .filter((r) => r.user.imageUrl)
-        .slice(0, 4)
-        .map((r) => ({ name: r.user.name, imageUrl: r.user.imageUrl })),
+      pickRandomMembers(approved, 5, club.id).map((r) => ({
+        name: r.user.name,
+        imageUrl: r.user.imageUrl,
+      })),
     );
   }
 
