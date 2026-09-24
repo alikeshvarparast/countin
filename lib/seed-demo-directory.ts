@@ -2,7 +2,7 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v17 — delete (or pass force) to re-run.
+ * Marker: data/.demo-directory-v18 — delete (or pass force) to re-run.
  */
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -25,7 +25,7 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v17";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v18";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
@@ -84,21 +84,22 @@ const LAST = [
 /**
  * 13 public demo clubs. Member counts sum to 200 so each club gets a
  * disjoint set of people (and therefore unique profile photos).
+ * `facesWithPic` controls how many members show a real portrait (1 vs several).
  */
-const CLUBS: { name: string; members: number; photo?: string }[] = [
-  { name: "Riverside Kickers", members: 6, photo: CLUB_PHOTOS[0] },
-  { name: "Harbor Night FC", members: 8, photo: CLUB_PHOTOS[4] },
-  { name: "Lakeview United", members: 10, photo: CLUB_PHOTOS[1] },
-  { name: "Oak Street 8v8", members: 12, photo: CLUB_PHOTOS[2] },
-  { name: "Maple Grove FC", members: 14 },
-  { name: "Parkdale Pickups", members: 15, photo: CLUB_PHOTOS[5] },
-  { name: "Southbank Strikers", members: 16 },
-  { name: "Dockside Dynamo", members: 17, photo: CLUB_PHOTOS[6] },
-  { name: "Riverbend Rovers", members: 18 },
-  { name: "Crown Point FC", members: 19 },
-  { name: "Station Yard FC", members: 20, photo: CLUB_PHOTOS[3] },
-  { name: "Beacon Hill Ball", members: 21 },
-  { name: "Showcase United", members: 24, photo: CLUB_PHOTOS[7] },
+const CLUBS: { name: string; members: number; photo?: string; facesWithPic: number }[] = [
+  { name: "Riverside Kickers", members: 6, photo: CLUB_PHOTOS[0], facesWithPic: 1 },
+  { name: "Harbor Night FC", members: 8, photo: CLUB_PHOTOS[4], facesWithPic: 1 },
+  { name: "Lakeview United", members: 10, photo: CLUB_PHOTOS[1], facesWithPic: 2 },
+  { name: "Oak Street 8v8", members: 12, photo: CLUB_PHOTOS[2], facesWithPic: 3 },
+  { name: "Maple Grove FC", members: 14, facesWithPic: 1 },
+  { name: "Parkdale Pickups", members: 15, photo: CLUB_PHOTOS[5], facesWithPic: 4 },
+  { name: "Southbank Strikers", members: 16, facesWithPic: 2 },
+  { name: "Dockside Dynamo", members: 17, photo: CLUB_PHOTOS[6], facesWithPic: 1 },
+  { name: "Riverbend Rovers", members: 18, facesWithPic: 3 },
+  { name: "Crown Point FC", members: 19, facesWithPic: 2 },
+  { name: "Station Yard FC", members: 20, photo: CLUB_PHOTOS[3], facesWithPic: 4 },
+  { name: "Beacon Hill Ball", members: 21, facesWithPic: 1 },
+  { name: "Showcase United", members: 24, photo: CLUB_PHOTOS[7], facesWithPic: 4 },
 ];
 
 const LOCATIONS = [
@@ -559,26 +560,17 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
   const people = [alex, ...pool.filter((u) => u.id !== alex.id)].slice(0, totalSeats);
   const roster = people.filter((u) => u.id !== alex.id);
 
-  // One unique portrait per person — never reuse a face across clubs.
-  const photoTargets = Math.min(PERSON_PHOTOS.length, people.length);
-  console.log(`assigning ${photoTargets} unique portraits across ${people.length} people…`);
-  const concurrency = 10;
-  for (let i = 0; i < photoTargets; i += concurrency) {
-    const batch = people.slice(i, i + concurrency);
-    await Promise.all(
-      batch.map(async (person, j) => {
-        const url = PERSON_PHOTOS[i + j];
-        try {
-          await attachPhoto("users", person.id, url);
-        } catch (err) {
-          console.warn("user photo skip", person.email, err);
-        }
-      }),
-    );
+  // Clear leftover portraits so only the intended facesWithPic members keep photos.
+  for (const person of people) {
+    if (person.imageUrl) {
+      db.update(users).set({ imageUrl: null }).where(eq(users.id, person.id)).run();
+      person.imageUrl = null;
+    }
   }
 
-  const created: { name: string; slug: string; members: number; showcase?: boolean }[] = [];
+  const created: { name: string; slug: string; members: number; facesWithPic: number; showcase?: boolean }[] = [];
   let rosterOffset = 0;
+  let photoIndex = 0;
 
   for (let i = 0; i < CLUBS.length; i++) {
     const spec = CLUBS[i];
@@ -586,6 +578,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     const slug = slugify(name);
     const targetMembers = spec.members;
     const showcase = i === CLUBS.length - 1;
+    const facesWithPic = Math.min(spec.facesWithPic, targetMembers);
 
     // Disjoint membership: each club takes the next unused people from the roster.
     // Showcase also includes Alex (who is never in other demo clubs).
@@ -596,6 +589,18 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     const ownerUser = showcase ? alex : memberUsers[0];
     if (!ownerUser || memberUsers.length < targetMembers) {
       throw new Error(`Not enough demo people for ${name} (need ${targetMembers}, got ${memberUsers.length})`);
+    }
+
+    // Only the first N members get portraits — varies by club (1 vs several).
+    for (let f = 0; f < facesWithPic; f++) {
+      const person = memberUsers[f];
+      const url = PERSON_PHOTOS[photoIndex % PERSON_PHOTOS.length];
+      photoIndex += 1;
+      try {
+        await attachPhoto("users", person.id, url);
+      } catch (err) {
+        console.warn("user photo skip", person.email, err);
+      }
     }
 
     let community = db.select().from(communities).where(eq(communities.slug, slug)).get();
@@ -656,7 +661,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
       seedShowcase(community.id, alex, memberUsers, t);
     }
 
-    created.push({ name, slug, members: ids.size, showcase });
+    created.push({ name, slug, members: ids.size, facesWithPic, showcase });
   }
 
   // Also mark existing football-test public if present
@@ -671,7 +676,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
   console.log("\nCreated / updated public communities:");
   for (const c of created) {
     console.log(
-      `  ${c.slug.padEnd(24)} members=${String(c.members).padStart(2)}${c.showcase ? "  ← SHOWCASE (login alex@club.com)" : ""}`,
+      `  ${c.slug.padEnd(24)} members=${String(c.members).padStart(2)} facesWithPic=${c.facesWithPic}${c.showcase ? "  ← SHOWCASE (login alex@club.com)" : ""}`,
     );
   }
 

@@ -37,9 +37,13 @@ export default async function HomePage({
       .all();
     const approved = rows.filter((r) => r.membership.status === "approved");
     memberCounts.set(club.id, approved.length);
+    // Only members with real portraits appear in the card face stack (1 vs several).
     faces.set(
       club.id,
-      approved.slice(0, 4).map((r) => ({ name: r.user.name, imageUrl: r.user.imageUrl })),
+      approved
+        .filter((r) => r.user.imageUrl)
+        .slice(0, 4)
+        .map((r) => ({ name: r.user.name, imageUrl: r.user.imageUrl })),
     );
   }
 
