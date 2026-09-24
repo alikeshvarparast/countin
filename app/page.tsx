@@ -10,21 +10,37 @@ import { Input } from "@/components/ui";
 import { db } from "@/lib/db";
 import { memberships, users } from "@/lib/db/schema";
 
-/** Stable shuffle so each club card always shows the same 5 “random” members. */
-function pickRandomMembers<T>(items: T[], count: number, seed: string): T[] {
+/** Pick up to `count` members, preferring a mix of photos + initials in the stack. */
+function pickRandomMembers<T extends { user: { imageUrl: string | null } }>(
+  items: T[],
+  count: number,
+  seed: string,
+): T[] {
   if (items.length <= count) return [...items];
-  const copy = [...items];
-  let h = 2166136261;
-  for (let i = 0; i < seed.length; i++) {
-    h ^= seed.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  for (let i = copy.length - 1; i > 0; i--) {
-    h = Math.imul(h ^ (h >>> 13), 1274126177);
-    const j = Math.abs(h) % (i + 1);
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy.slice(0, count);
+  const withPic = items.filter((i) => i.user.imageUrl);
+  const without = items.filter((i) => !i.user.imageUrl);
+  const shuffle = <U,>(arr: U[], salt: string) => {
+    const copy = [...arr];
+    let h = 2166136261;
+    for (let i = 0; i < seed.length + salt.length; i++) {
+      h ^= (seed + salt).charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    for (let i = copy.length - 1; i > 0; i--) {
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      const j = Math.abs(h) % (i + 1);
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+  // Aim for ~3 photos + initials when available, so stacks don't look empty or all-photo.
+  const wantPic = Math.min(withPic.length, Math.max(1, Math.min(3, count - 1)));
+  const pickedPic = shuffle(withPic, "p").slice(0, wantPic);
+  const pickedRest = shuffle(
+    [...without, ...withPic.filter((p) => !pickedPic.includes(p))],
+    "r",
+  ).slice(0, count - pickedPic.length);
+  return shuffle([...pickedPic, ...pickedRest], "m");
 }
 
 export default async function HomePage({

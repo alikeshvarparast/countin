@@ -42,7 +42,8 @@ export function Avatar({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full bg-pitch-3 font-display font-medium text-ink ring-2 ring-card",
+        // font-sans (not display) so Latin and Persian initials match in weight/size
+        "inline-flex shrink-0 items-center justify-center rounded-full bg-pitch-3 font-sans font-semibold text-ink ring-2 ring-card",
         box,
       )}
       aria-hidden

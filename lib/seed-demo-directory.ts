@@ -2,7 +2,8 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v19 — delete (or pass force) to re-run.
+ * Marker: data/.demo-directory-v20 — delete (or pass force) to re-run.
+ * `facesWithPic` (3–5) controls how many members have a real portrait in the card stack.
  */
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -25,7 +26,7 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v19";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v20";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
@@ -84,22 +85,22 @@ const LAST = [
 /**
  * 13 public demo clubs. Member counts sum to 200 so each club gets a
  * disjoint set of people (and therefore unique profile photos).
- * `facesWithPic` controls how many members show a real portrait (1 vs several).
+ * `facesWithPic` controls how many members show a real portrait (3–5 of the stack of 5).
  */
 const CLUBS: { name: string; members: number; photo?: string; facesWithPic: number }[] = [
-  { name: "Riverside Kickers", members: 6, photo: CLUB_PHOTOS[0], facesWithPic: 1 },
-  { name: "Harbor Night FC", members: 8, photo: CLUB_PHOTOS[4], facesWithPic: 1 },
-  { name: "Lakeview United", members: 10, photo: CLUB_PHOTOS[1], facesWithPic: 2 },
-  { name: "Oak Street 8v8", members: 12, photo: CLUB_PHOTOS[2], facesWithPic: 3 },
-  { name: "Maple Grove FC", members: 14, facesWithPic: 1 },
-  { name: "Parkdale Pickups", members: 15, photo: CLUB_PHOTOS[5], facesWithPic: 4 },
-  { name: "Southbank Strikers", members: 16, facesWithPic: 2 },
-  { name: "Dockside Dynamo", members: 17, photo: CLUB_PHOTOS[6], facesWithPic: 1 },
-  { name: "Riverbend Rovers", members: 18, facesWithPic: 3 },
-  { name: "Crown Point FC", members: 19, facesWithPic: 2 },
-  { name: "Station Yard FC", members: 20, photo: CLUB_PHOTOS[3], facesWithPic: 4 },
-  { name: "Beacon Hill Ball", members: 21, facesWithPic: 1 },
-  { name: "Showcase United", members: 24, photo: CLUB_PHOTOS[7], facesWithPic: 4 },
+  { name: "Riverside Kickers", members: 6, photo: CLUB_PHOTOS[0], facesWithPic: 3 },
+  { name: "Harbor Night FC", members: 8, photo: CLUB_PHOTOS[4], facesWithPic: 4 },
+  { name: "Lakeview United", members: 10, photo: CLUB_PHOTOS[1], facesWithPic: 5 },
+  { name: "Oak Street 8v8", members: 12, photo: CLUB_PHOTOS[2], facesWithPic: 4 },
+  { name: "Maple Grove FC", members: 14, facesWithPic: 3 },
+  { name: "Parkdale Pickups", members: 15, photo: CLUB_PHOTOS[5], facesWithPic: 5 },
+  { name: "Southbank Strikers", members: 16, facesWithPic: 4 },
+  { name: "Dockside Dynamo", members: 17, photo: CLUB_PHOTOS[6], facesWithPic: 3 },
+  { name: "Riverbend Rovers", members: 18, facesWithPic: 5 },
+  { name: "Crown Point FC", members: 19, facesWithPic: 4 },
+  { name: "Station Yard FC", members: 20, photo: CLUB_PHOTOS[3], facesWithPic: 5 },
+  { name: "Beacon Hill Ball", members: 21, facesWithPic: 3 },
+  { name: "Showcase United", members: 24, photo: CLUB_PHOTOS[7], facesWithPic: 5 },
 ];
 
 const LOCATIONS = [
@@ -577,7 +578,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     const slug = slugify(name);
     const targetMembers = spec.members;
     const showcase = i === CLUBS.length - 1;
-    const facesWithPic = Math.min(4, Math.max(1, Math.min(spec.facesWithPic, targetMembers)));
+    const facesWithPic = Math.min(5, Math.max(3, Math.min(spec.facesWithPic, targetMembers)));
 
     // Disjoint membership: each club takes the next unused people from the roster.
     // Showcase also includes Alex (who is never in other demo clubs).
