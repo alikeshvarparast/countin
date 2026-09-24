@@ -60,7 +60,7 @@ docker compose up -d --force-recreate
 
 # Wait for app boot (instrumentation also seeds once; this is a fallback).
 sleep 8
-if docker compose exec -T countin test -f /app/data/.demo-directory-v16 2>/dev/null; then
+if docker compose exec -T countin test -f /app/data/.demo-directory-v17 2>/dev/null; then
   log "demo directory already seeded"
 else
   log "demo directory will seed on first Node boot via instrumentation"

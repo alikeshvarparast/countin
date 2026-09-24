@@ -2,7 +2,7 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v16 — delete (or pass force) to re-run.
+ * Marker: data/.demo-directory-v17 — delete (or pass force) to re-run.
  */
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -25,7 +25,7 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v16";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v17";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
@@ -50,12 +50,13 @@ const CLUB_PHOTOS = [
   pitchPhoto("photo-1550591822-385011169f30"), // packed stands / field
 ] as const;
 
-/** 100 unique portraits from mixed sources so faces don't all look the same. */
+/**
+ * 200 unique portraits (randomuser men 0–99 + women 0–99).
+ * Club sizes below are sized so members never share people — or faces — across clubs.
+ */
 const PERSON_PHOTOS: string[] = [
-  ...Array.from({ length: 40 }, (_, i) => `https://randomuser.me/api/portraits/men/${i}.jpg`),
-  ...Array.from({ length: 40 }, (_, i) => `https://randomuser.me/api/portraits/women/${i}.jpg`),
-  // pravatar / UI Faces — different style from randomuser
-  ...Array.from({ length: 20 }, (_, i) => `https://i.pravatar.cc/256?img=${i + 1}`),
+  ...Array.from({ length: 100 }, (_, i) => `https://randomuser.me/api/portraits/men/${i}.jpg`),
+  ...Array.from({ length: 100 }, (_, i) => `https://randomuser.me/api/portraits/women/${i}.jpg`),
 ];
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -80,21 +81,24 @@ const LAST = [
   "Hill", "Lane", "Moss", "Park", "Quinn", "Shaw", "West", "Young",
 ];
 
-/** 13 public demo clubs — sizes span ~6 to 79. Last entry is the rich showcase. */
+/**
+ * 13 public demo clubs. Member counts sum to 200 so each club gets a
+ * disjoint set of people (and therefore unique profile photos).
+ */
 const CLUBS: { name: string; members: number; photo?: string }[] = [
   { name: "Riverside Kickers", members: 6, photo: CLUB_PHOTOS[0] },
-  { name: "Harbor Night FC", members: 9, photo: CLUB_PHOTOS[4] },
-  { name: "Lakeview United", members: 16, photo: CLUB_PHOTOS[1] },
-  { name: "Oak Street 8v8", members: 22, photo: CLUB_PHOTOS[2] },
-  { name: "Maple Grove FC", members: 31 },
-  { name: "Parkdale Pickups", members: 44, photo: CLUB_PHOTOS[5] },
-  { name: "Southbank Strikers", members: 50 },
-  { name: "Dockside Dynamo", members: 57, photo: CLUB_PHOTOS[6] },
-  { name: "Riverbend Rovers", members: 69 },
-  { name: "Crown Point FC", members: 66 },
-  { name: "Station Yard FC", members: 73, photo: CLUB_PHOTOS[3] },
-  { name: "Beacon Hill Ball", members: 76 },
-  { name: "Showcase United", members: 79, photo: CLUB_PHOTOS[7] },
+  { name: "Harbor Night FC", members: 8, photo: CLUB_PHOTOS[4] },
+  { name: "Lakeview United", members: 10, photo: CLUB_PHOTOS[1] },
+  { name: "Oak Street 8v8", members: 12, photo: CLUB_PHOTOS[2] },
+  { name: "Maple Grove FC", members: 14 },
+  { name: "Parkdale Pickups", members: 15, photo: CLUB_PHOTOS[5] },
+  { name: "Southbank Strikers", members: 16 },
+  { name: "Dockside Dynamo", members: 17, photo: CLUB_PHOTOS[6] },
+  { name: "Riverbend Rovers", members: 18 },
+  { name: "Crown Point FC", members: 19 },
+  { name: "Station Yard FC", members: 20, photo: CLUB_PHOTOS[3] },
+  { name: "Beacon Hill Ball", members: 21 },
+  { name: "Showcase United", members: 24, photo: CLUB_PHOTOS[7] },
 ];
 
 const LOCATIONS = [
@@ -198,13 +202,11 @@ async function ensureUserPool(passwordHash: string, needed: number) {
   return pool;
 }
 
-/** Drop real-user memberships that earlier seeds attached to demo clubs. */
-function pruneNonDemoMembers(communityId: string, keepUserIds: Set<string>) {
+/** Drop memberships that are not in the intended member set for this club. */
+function pruneExtraMembers(communityId: string, keepUserIds: Set<string>) {
   const rows = db.select().from(memberships).where(eq(memberships.communityId, communityId)).all();
   for (const row of rows) {
     if (keepUserIds.has(row.userId)) continue;
-    const member = db.select().from(users).where(eq(users.id, row.userId)).get();
-    if (member && isDemoAccount(member.email)) continue;
     db.delete(memberships).where(eq(memberships.id, row.id)).run();
   }
 }
@@ -551,14 +553,16 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     alex = db.select().from(users).where(eq(users.id, id)).get()!;
   }
 
-  const pool = await ensureUserPool(passwordHash, 100);
-  // Prefer alex first in pool
-  const people = [alex, ...pool.filter((u) => u.id !== alex.id)].slice(0, 100);
+  const totalSeats = CLUBS.reduce((sum, c) => sum + c.members, 0);
+  const pool = await ensureUserPool(passwordHash, totalSeats);
+  // Prefer alex first; everyone else is a unique demo person.
+  const people = [alex, ...pool.filter((u) => u.id !== alex.id)].slice(0, totalSeats);
+  const roster = people.filter((u) => u.id !== alex.id);
 
-  // One unique real portrait per person (100 photos → 100 people)
+  // One unique portrait per person — never reuse a face across clubs.
   const photoTargets = Math.min(PERSON_PHOTOS.length, people.length);
-  console.log(`assigning ${photoTargets} unique portraits…`);
-  const concurrency = 8;
+  console.log(`assigning ${photoTargets} unique portraits across ${people.length} people…`);
+  const concurrency = 10;
   for (let i = 0; i < photoTargets; i += concurrency) {
     const batch = people.slice(i, i + concurrency);
     await Promise.all(
@@ -574,6 +578,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
   }
 
   const created: { name: string; slug: string; members: number; showcase?: boolean }[] = [];
+  let rosterOffset = 0;
 
   for (let i = 0; i < CLUBS.length; i++) {
     const spec = CLUBS[i];
@@ -582,7 +587,16 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     const targetMembers = spec.members;
     const showcase = i === CLUBS.length - 1;
 
-    const ownerUser = showcase ? alex : people[(i % (people.length - 1)) + 1];
+    // Disjoint membership: each club takes the next unused people from the roster.
+    // Showcase also includes Alex (who is never in other demo clubs).
+    const neededFromRoster = showcase ? targetMembers - 1 : targetMembers;
+    const slice = roster.slice(rosterOffset, rosterOffset + neededFromRoster);
+    rosterOffset += neededFromRoster;
+    const memberUsers = showcase ? [alex, ...slice] : slice;
+    const ownerUser = showcase ? alex : memberUsers[0];
+    if (!ownerUser || memberUsers.length < targetMembers) {
+      throw new Error(`Not enough demo people for ${name} (need ${targetMembers}, got ${memberUsers.length})`);
+    }
 
     let community = db.select().from(communities).where(eq(communities.slug, slug)).get();
     if (!community) {
@@ -620,25 +634,12 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
         .run();
     }
 
-    // Members: Alex only joins the showcase club (so the directory stays public for demos).
-    const ids = new Set<string>();
-    if (showcase) ids.add(alex.id);
-    ids.add(ownerUser.id);
-    for (const u of people) {
-      if (ids.size >= targetMembers) break;
-      if (!showcase && u.id === alex.id) continue;
-      ids.add(u.id);
+    const ids = new Set(memberUsers.map((u) => u.id));
+    for (const user of memberUsers) {
+      const finalRole = user.id === ownerUser.id ? "owner" : "member";
+      ensureMembership(community.id, user.id, finalRole, t);
     }
-    for (const userId of ids) {
-      const finalRole =
-        showcase && userId === alex.id
-          ? "owner"
-          : !showcase && userId === ownerUser.id
-            ? "owner"
-            : "member";
-      ensureMembership(community.id, userId, finalRole, t);
-    }
-    pruneNonDemoMembers(community.id, ids);
+    pruneExtraMembers(community.id, ids);
 
     if (spec.photo) {
       try {
@@ -652,10 +653,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     }
 
     if (showcase) {
-      const memberRows = [...ids]
-        .map((id) => people.find((p) => p.id === id)!)
-        .filter(Boolean);
-      seedShowcase(community.id, alex, memberRows, t);
+      seedShowcase(community.id, alex, memberUsers, t);
     }
 
     created.push({ name, slug, members: ids.size, showcase });
