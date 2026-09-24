@@ -3,6 +3,19 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
+function firstInitial(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "?";
+  try {
+    const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const first = seg.segment(trimmed)[Symbol.iterator]().next().value as { segment: string } | undefined;
+    if (first?.segment) return first.segment.toLocaleUpperCase();
+  } catch {
+    /* older runtimes */
+  }
+  return trimmed[0]!.toLocaleUpperCase();
+}
+
 export function Avatar({
   src,
   name,
@@ -16,7 +29,7 @@ export function Avatar({
   useEffect(() => {
     setFailed(false);
   }, [src]);
-  const initial = (name.trim()[0] || "?").toUpperCase();
+  const initial = firstInitial(name);
   const box =
     size === "xl"
       ? "h-24 w-24 text-3xl"

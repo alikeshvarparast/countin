@@ -2,7 +2,7 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v20 — delete (or pass force) to re-run.
+ * Marker: data/.demo-directory-v21 — delete (or pass force) to re-run.
  * `facesWithPic` (3–5) controls how many members have a real portrait in the card stack.
  */
 import { hash } from "bcryptjs";
@@ -26,7 +26,7 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v20";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v21";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
@@ -567,6 +567,16 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     db.update(users).set({ imageUrl: null }).where(eq(users.id, row.id)).run();
   }
   for (const person of people) person.imageUrl = null;
+
+  // Older seeds wrote ui-avatars letter PNGs onto real members (two letters, multi-color).
+  // Clear those so the home stack uses the same single-letter initials as demo clubs.
+  // Keep real photos (typically .jpg/.webp uploads users actually chose).
+  for (const row of db.select().from(users).all()) {
+    if (isDemoAccount(row.email) || !row.imageUrl) continue;
+    const pathOnly = row.imageUrl.split("?")[0] ?? "";
+    if (!pathOnly.toLowerCase().endsWith(".png")) continue;
+    db.update(users).set({ imageUrl: null }).where(eq(users.id, row.id)).run();
+  }
 
   const created: { name: string; slug: string; members: number; facesWithPic: number; showcase?: boolean }[] = [];
   let rosterOffset = 0;
