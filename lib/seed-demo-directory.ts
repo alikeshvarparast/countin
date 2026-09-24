@@ -2,7 +2,7 @@
  * Seed public demo communities for the directory, plus one rich showcase club.
  * Creates 13 public clubs (6–79 members), club avatars for most, and showcase content.
  *
- * Marker: data/.demo-directory-v18 — delete (or pass force) to re-run.
+ * Marker: data/.demo-directory-v19 — delete (or pass force) to re-run.
  */
 import { hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
@@ -25,7 +25,7 @@ import {
 import { createCommunityUid, createId, createInviteToken, now } from "@/lib/id";
 import { saveImageBuffer } from "@/lib/uploads";
 
-export const DEMO_DIRECTORY_MARKER = ".demo-directory-v18";
+export const DEMO_DIRECTORY_MARKER = ".demo-directory-v19";
 
 const DEMO_EMAIL_RE = /^(alex|sam|jordan|riley|demo\d+)@club\.com$/i;
 
@@ -560,13 +560,12 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
   const people = [alex, ...pool.filter((u) => u.id !== alex.id)].slice(0, totalSeats);
   const roster = people.filter((u) => u.id !== alex.id);
 
-  // Clear leftover portraits so only the intended facesWithPic members keep photos.
-  for (const person of people) {
-    if (person.imageUrl) {
-      db.update(users).set({ imageUrl: null }).where(eq(users.id, person.id)).run();
-      person.imageUrl = null;
-    }
+  // Strip every demo account portrait first — each club then gets only 1–4 faces with photos.
+  for (const row of db.select().from(users).all()) {
+    if (!isDemoAccount(row.email) || !row.imageUrl) continue;
+    db.update(users).set({ imageUrl: null }).where(eq(users.id, row.id)).run();
   }
+  for (const person of people) person.imageUrl = null;
 
   const created: { name: string; slug: string; members: number; facesWithPic: number; showcase?: boolean }[] = [];
   let rosterOffset = 0;
@@ -578,7 +577,7 @@ export async function seedDemoDirectory(opts?: { force?: boolean }) {
     const slug = slugify(name);
     const targetMembers = spec.members;
     const showcase = i === CLUBS.length - 1;
-    const facesWithPic = Math.min(spec.facesWithPic, targetMembers);
+    const facesWithPic = Math.min(4, Math.max(1, Math.min(spec.facesWithPic, targetMembers)));
 
     // Disjoint membership: each club takes the next unused people from the roster.
     // Showcase also includes Alex (who is never in other demo clubs).
