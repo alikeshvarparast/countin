@@ -1,0 +1,17 @@
+---
+description: Project bus MCP — coordinate with other Cursor workspaces
+alwaysApply: true
+---
+
+# Project bus
+
+**Project id:** `countin`
+
+When **project-bus** MCP is connected:
+
+1. **Start of a substantive task** — `list_questions` (`project_id=countin`, `status=open`) and `list_activity` (`related_to=countin`, `limit=15`).
+2. **Cross-project change** — `post_activity` with `related_project_ids` as needed.
+3. **Blocked on another repo** — `ask` (do not ask the user to paste between projects).
+4. **Docker host context** — `get_stack_memory` (this stack), `list_host_stacks`, `read_host_file` (allowlisted paths), `get_hub_journal`, `search_host_memory`.
+
+Register once if missing: `register_project` with display name "CountIn", `machine` `linux-hub`.
