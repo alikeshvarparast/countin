@@ -66,6 +66,16 @@ def load_routes() -> dict[str, WebhookRoute]:
     )
     if coformia:
         routes["/hooks/github/coformia"] = coformia
+    globe = _route(
+        "globe",
+        "GLOBE_WEBHOOK_SECRET",
+        "GLOBE_BRANCH",
+        "main",
+        "GLOBE_REBUILD_SCRIPT",
+        "/opt/docker/against-amnesia-globe/scripts/rebuild-from-github.sh",
+    )
+    if globe:
+        routes["/hooks/github/globe"] = globe
     return routes
 
 
@@ -90,7 +100,10 @@ def parse_github_payload(body: bytes, content_type: str | None) -> dict:
 def trigger_rebuild(route: WebhookRoute, reason: str) -> None:
     def run() -> None:
         print(f"[github-webhook:{route.name}] rebuild: {reason}", flush=True)
-        subprocess.run([route.rebuild_script], check=False)
+        env = os.environ.copy()
+        env.setdefault("HOME", "/root")
+        env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+        subprocess.run(["/bin/bash", route.rebuild_script], check=False, env=env)
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -152,7 +165,10 @@ def make_handler(routes: dict[str, WebhookRoute]) -> type[BaseHTTPRequestHandler
 def main() -> None:
     routes = load_routes()
     if not routes:
-        raise SystemExit("At least one webhook secret is required (COUNTIN_WEBHOOK_SECRET or COFORMIA_WEBHOOK_SECRET)")
+        raise SystemExit(
+            "At least one webhook secret is required "
+            "(COUNTIN_WEBHOOK_SECRET, COFORMIA_WEBHOOK_SECRET, or GLOBE_WEBHOOK_SECRET)"
+        )
     handler = make_handler(routes)
     server = ThreadingHTTPServer((HOST, PORT), handler)
     names = sorted({r.name for r in routes.values()})
